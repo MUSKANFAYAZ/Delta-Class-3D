@@ -1,8 +1,10 @@
 const express = require("express");
 const http = require("http");
+const path = require("path");
+const fs = require("fs");
 const { Server } = require("socket.io");
 
-const PORT = Number(process.env.PORT) || 3001;
+const PORT = process.env.PORT || 3001;
 const MAX_STUDENT_SLOTS = 25;
 
 const app = express();
@@ -14,6 +16,20 @@ const io = new Server(server, {
     methods: ["GET", "POST"],
   },
 });
+
+// Serve frontend static files
+const clientBuildPath = path.join(__dirname, "../client/dist");
+const clientBuildExists = fs.existsSync(clientBuildPath);
+
+if (clientBuildExists) {
+  app.use(express.static(clientBuildPath));
+  console.log(`Serving frontend from ${clientBuildPath}`);
+} else {
+  console.warn(`Frontend build not found at ${clientBuildPath}`);
+  app.use((_req, res) => {
+    res.status(503).send("Frontend build not available. Please build the client.");
+  });
+}
 
 const studentAssignments = new Map();
 const studentPositions = new Map();
@@ -51,9 +67,13 @@ function broadcastSnapshot(socket) {
   }
 }
 
-app.get("/", (_req, res) => {
-  res.json({ ok: true, service: "delta-classroom-server" });
-});
+// Serve index.html for SPA routing (only if build exists)
+if (clientBuildExists) {
+  app.use((_req, res) => {
+    const indexPath = path.join(clientBuildPath, "index.html");
+    res.sendFile(indexPath, { headers: { "Cache-Control": "no-cache" } });
+  });
+}
 
 io.on("connection", (socket) => {
   const role = getRole(socket);
@@ -120,6 +140,6 @@ io.on("connection", (socket) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`DeltaClass3D server running on http://localhost:${PORT}`);
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`✓ Server started on port ${PORT}`);
 });

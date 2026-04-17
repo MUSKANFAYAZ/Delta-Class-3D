@@ -26,7 +26,6 @@ app.innerHTML = `
   </div>
 `;
 
-const serverUrl = resolveServerUrl();
 const role = new URLSearchParams(window.location.search).get("role") || "student";
 const connectionStatus = document.getElementById("connection-status");
 const connectionBadge = document.getElementById("connection-badge");
@@ -57,15 +56,6 @@ async function bootClassroom() {
 
   bootPromise = (async () => {
     try {
-      if (!serverUrl) {
-        setStatus("Socket server URL is not configured for production.", "Config error");
-        loadButton.disabled = false;
-        loadButton.textContent = "Configure server URL";
-        bootPromise = null;
-        bootRequested = false;
-        return;
-      }
-
       loadButton.disabled = true;
       loadButton.textContent = "Loading...";
       setStatus("Loading classroom modules.", "Loading");
@@ -80,7 +70,8 @@ async function bootClassroom() {
         activeSocket = null;
       }
 
-      const socket = io(serverUrl, {
+      const socket = io({
+        path: "/socket.io",
         transports: ["websocket"],
         auth: { role },
         query: { role },
@@ -132,18 +123,7 @@ async function loadSocketClientModule() {
   }
 }
 
-function resolveServerUrl() {
-  const queryServer = new URLSearchParams(window.location.search).get("server");
-  if (queryServer) return queryServer;
 
-  const envServer = import.meta.env.VITE_SOCKET_SERVER_URL;
-  if (envServer) return envServer;
-
-  const isLocalhost = ["localhost", "127.0.0.1"].includes(window.location.hostname);
-  if (isLocalhost) return `${window.location.protocol}//${window.location.hostname}:3001`;
-
-  return "";
-}
 
 loadButton.addEventListener("click", () => {
   if (classroomStarted || bootRequested) return;
