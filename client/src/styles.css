@@ -106,6 +106,18 @@ body {
   background: #1e293b;
 }
 
+.bandwidth-panel[hidden] {
+  display: none;
+}
+
+.bandwidth-panel {
+  gap: 10px;
+}
+
+.bandwidth-panel p {
+  margin: 0;
+}
+
 .hint {
   margin: 0;
   font-size: 12px;

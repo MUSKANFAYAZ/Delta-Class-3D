@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import * as THREE from "./three-cdn.js";
 
 export function createSceneSetup(container) {
   const scene = new THREE.Scene();

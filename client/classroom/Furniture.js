@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import * as THREE from "./three-cdn.js";
 import { createStudentAvatar, createTeacherAvatar } from "./Avatars.js";
 
 const woodMat = new THREE.MeshStandardMaterial({ color: 0x78350f });
@@ -40,7 +40,7 @@ export function createClassroomFurniture(scene) {
   const studentSlots = [];
   const staticObstacles = [];
 
-  for (let r = 0; r < 4; r++) {
+  for (let r = 0; r < 3; r++) {
     for (let c = -2; c <= 2; c++) {
       if (c === 0) continue;
 

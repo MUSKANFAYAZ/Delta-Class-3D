@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import * as THREE from "./three-cdn.js";
 
 export function setupCameraSystem({ container, scene, camera, renderer, teacher }) {
   const cameraTarget = new THREE.Vector3(0, 2, -5);

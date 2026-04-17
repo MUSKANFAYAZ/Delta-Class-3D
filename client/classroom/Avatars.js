@@ -1,4 +1,4 @@
-import * as THREE from "three";
+import * as THREE from "./three-cdn.js";
 
 export function createStudentAvatar(color = 0x2563eb) {
   const group = new THREE.Group();
