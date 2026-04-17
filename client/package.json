@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "delta-class3d-monorepo": "file:..",
     "socket.io-client": "^4.8.3",
     "three": "^0.180.0"
   },

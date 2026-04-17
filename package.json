@@ -1,0 +1,9 @@
+{
+  "name": "delta-class3d-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "npm install --prefix server && npm install --prefix client && npm run build --prefix client",
+    "start": "node server/index.js"
+  }
+}
