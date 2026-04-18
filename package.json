@@ -3,7 +3,11 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
+    "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
     "build": "npm install --prefix server && npm install --prefix client && npm run build --prefix client",
     "start": "node server/index.js"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
   }
 }
