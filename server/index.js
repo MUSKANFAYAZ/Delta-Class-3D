@@ -2,6 +2,7 @@ const express = require("express");
 const http = require("http");
 const path = require("path");
 const fs = require("fs");
+const compression = require("compression");
 const { Server } = require("socket.io");
 
 const PORT = process.env.PORT || 3000;
@@ -9,6 +10,12 @@ const MAX_STUDENT_SLOTS = 25;
 
 const app = express();
 const server = http.createServer(app);
+
+app.use(
+  compression({
+    threshold: 1024,
+  }),
+);
 
 const io = new Server(server, {
   cors: {
@@ -22,7 +29,18 @@ const clientBuildPath = path.join(__dirname, "../client/dist");
 const clientBuildExists = fs.existsSync(clientBuildPath);
 
 if (clientBuildExists) {
-  app.use(express.static(clientBuildPath));
+  app.use(
+    express.static(clientBuildPath, {
+      setHeaders(res, filePath) {
+        if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+          return;
+        }
+
+        res.setHeader("Cache-Control", "no-cache");
+      },
+    }),
+  );
   console.log(`Serving frontend from ${clientBuildPath}`);
 } else {
   console.warn(`Frontend build not found at ${clientBuildPath}`);
@@ -34,6 +52,9 @@ if (clientBuildExists) {
 const studentAssignments = new Map();
 const studentPositions = new Map();
 const teacherPositions = new Map();
+const blackboardOps = [];
+
+const MAX_BLACKBOARD_OPS = 4000;
 
 function getRole(socket) {
   return (
@@ -41,6 +62,55 @@ function getRole(socket) {
     socket.handshake.query?.role ||
     "guest"
   );
+}
+
+function canWriteBlackboard(socket) {
+  const authValue = socket.handshake.auth?.canWriteBlackboard;
+  const queryValue = socket.handshake.query?.canWriteBlackboard;
+
+  if (typeof authValue === "boolean") return authValue;
+  if (typeof authValue === "string") return authValue === "true";
+  if (typeof queryValue === "string") return queryValue === "true";
+
+  return getRole(socket) === "teacher";
+}
+
+function isValidPoint(point) {
+  return Number.isFinite(point?.u) && Number.isFinite(point?.v);
+}
+
+function normalizePoint(point) {
+  return {
+    u: Math.max(0, Math.min(1, Number(point.u))),
+    v: Math.max(0, Math.min(1, Number(point.v))),
+  };
+}
+
+function normalizeColor(value, fallback = "#111827") {
+  if (typeof value !== "string") return fallback;
+  const color = value.trim().toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(color) ? color : fallback;
+}
+
+function normalizeStroke(payload = {}) {
+  if (!isValidPoint(payload.from) || !isValidPoint(payload.to)) {
+    return null;
+  }
+
+  const thickness = Number(payload.thickness);
+  const nextThickness = Number.isFinite(thickness)
+    ? Math.max(1, Math.min(20, thickness))
+    : 5;
+  const nextMode = payload.mode === "eraser" ? "eraser" : "pen";
+  const nextColor = normalizeColor(payload.color);
+
+  return {
+    from: normalizePoint(payload.from),
+    to: normalizePoint(payload.to),
+    thickness: nextThickness,
+    mode: nextMode,
+    color: nextColor,
+  };
 }
 
 function getNextAvailableSlot() {
@@ -65,6 +135,8 @@ function broadcastSnapshot(socket) {
   for (const [, pos] of teacherPositions.entries()) {
     socket.emit("teacher-move-update", { x: pos.x, z: pos.z });
   }
+
+  socket.emit("blackboard-snapshot", { ops: blackboardOps });
 }
 
 // Serve index.html for SPA routing (only if build exists)
@@ -77,6 +149,7 @@ if (clientBuildExists) {
 
 io.on("connection", (socket) => {
   const role = getRole(socket);
+  const hasBlackboardWriteAccess = canWriteBlackboard(socket);
   console.log(`Socket connected: ${socket.id} (${role})`);
 
   if (role === "student") {
@@ -130,6 +203,27 @@ io.on("connection", (socket) => {
     if (typeof userId !== "string" || typeof direction !== "string") return;
 
     io.emit("teacher-student-instruction", { userId, direction });
+  });
+
+  socket.on("blackboard-stroke", (payload = {}) => {
+    if (!hasBlackboardWriteAccess) return;
+
+    const stroke = normalizeStroke(payload);
+    if (!stroke) return;
+
+    blackboardOps.push(stroke);
+    if (blackboardOps.length > MAX_BLACKBOARD_OPS) {
+      blackboardOps.splice(0, blackboardOps.length - MAX_BLACKBOARD_OPS);
+    }
+
+    io.emit("blackboard-stroke", stroke);
+  });
+
+  socket.on("blackboard-clear", () => {
+    if (!hasBlackboardWriteAccess) return;
+
+    blackboardOps.length = 0;
+    io.emit("blackboard-clear");
   });
 
   socket.on("disconnect", () => {

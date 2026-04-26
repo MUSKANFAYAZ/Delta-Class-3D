@@ -12,6 +12,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "compression": "^1.8.1",
     "delta-class3d-monorepo": "file:..",
     "express": "^5.2.1",
     "socket.io": "^4.8.3"

@@ -1,6 +1,9 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  optimizeDeps: {
+    include: ["three", "socket.io-client"],
+  },
   server: {
     host: "0.0.0.0",
     port: 5173,

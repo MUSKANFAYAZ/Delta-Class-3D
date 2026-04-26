@@ -162,7 +162,7 @@ export function setupCameraSystem({ container, scene, camera, renderer, teacher 
   }
 
   panel.appendChild(
-    makeButton("Blackboard", () => {
+    makeButton("Whiteboard", () => {
       setBlackboardView();
     }),
   );

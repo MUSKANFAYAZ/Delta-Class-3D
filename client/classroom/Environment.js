@@ -32,7 +32,7 @@ export function createBlackboard(scene) {
   frame.position.set(0, 6, -14.95);
   scene.add(frame);
 
-  const boardMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.7 });
+  const boardMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.85, metalness: 0.05 });
   const blackboard = new THREE.Mesh(new THREE.PlaneGeometry(17, 8), boardMat);
   blackboard.position.set(0, 6, -14.94);
   scene.add(blackboard);
@@ -40,9 +40,12 @@ export function createBlackboard(scene) {
   const ledge = new THREE.Mesh(new THREE.BoxGeometry(17, 0.1, 0.2), frameMat);
   ledge.position.set(0, 2.0, -14.85);
   scene.add(ledge);
+
+  return blackboard;
 }
 
 export function setupEnvironment(scene) {
   createWalls(scene);
-  createBlackboard(scene);
+  const blackboard = createBlackboard(scene);
+  return { blackboard };
 }
