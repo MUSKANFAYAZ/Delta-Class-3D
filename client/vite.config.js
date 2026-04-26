@@ -1,5 +1,8 @@
 import { defineConfig } from "vite";
 
+const SOCKET_TARGET = process.env.VITE_SOCKET_PROXY_TARGET || "http://localhost:3000";
+const AUTH_TARGET = process.env.VITE_AUTH_PROXY_TARGET || "http://localhost:3001";
+
 export default defineConfig({
   server: {
     host: "0.0.0.0",
@@ -7,8 +10,13 @@ export default defineConfig({
     proxy: {
       // Proxy Socket.IO in dev so client and server can run concurrently.
       "/socket.io": {
-        target: "http://localhost:3000",
+        target: SOCKET_TARGET,
         ws: true,
+      },
+      // Proxy auth APIs in dev.
+      "/auth": {
+        target: AUTH_TARGET,
+        changeOrigin: true,
       },
     },
   },

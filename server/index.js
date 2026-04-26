@@ -1,14 +1,25 @@
+require("dotenv").config();
+
 const express = require("express");
 const http = require("http");
 const path = require("path");
 const fs = require("fs");
 const { Server } = require("socket.io");
+const cors = require("cors");
+const mongoose = require("mongoose");
+const authRouter = require("./routes/auth");
 
 const PORT = process.env.PORT || 3000;
 const MAX_STUDENT_SLOTS = 25;
 
 const app = express();
 const server = http.createServer(app);
+
+app.use(cors({ origin: "*", methods: ["GET", "POST", "PUT", "PATCH", "DELETE"] }));
+app.use(express.json({ limit: "1mb" }));
+
+app.get("/health", (_req, res) => res.json({ ok: true }));
+app.use("/auth", authRouter);
 
 const io = new Server(server, {
   cors: {
@@ -143,3 +154,13 @@ io.on("connection", (socket) => {
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`✓ Server started on port ${PORT}`);
 });
+
+const MONGO_URI = process.env.MONGO_URI;
+if (MONGO_URI) {
+  mongoose
+    .connect(MONGO_URI, { dbName: process.env.MONGO_DB || undefined })
+    .then(() => console.log("✓ MongoDB connected"))
+    .catch((e) => console.error("MongoDB connection failed:", e?.message || e));
+} else {
+  console.warn("MONGO_URI not set — auth storage will not work until MongoDB is configured.");
+}
