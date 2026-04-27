@@ -8,6 +8,7 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 const mongoose = require("mongoose");
 const authRouter = require("./routes/auth");
+const Classroom = require("./models/Classroom");
 
 const PORT = process.env.PORT || 3000;
 const MAX_STUDENT_SLOTS = 25;
@@ -29,7 +30,9 @@ const io = new Server(server, {
 });
 
 const ROOM_CODE_REGEX = /^[a-z0-9]{3}-[a-z0-9]{4}-[a-z0-9]{3}$/;
-const classrooms = new Map();
+
+// In-memory cache for active classroom sessions (Socket.IO state)
+const activeClassrooms = new Map();
 
 function normalizeRoomCode(raw) {
   return String(raw || "")
@@ -41,17 +44,18 @@ function isValidRoomCode(code) {
   return ROOM_CODE_REGEX.test(code);
 }
 
-function getOrCreateClassroom(code, additionalData = {}) {
-  if (!classrooms.has(code)) {
-    classrooms.set(code, {
+async function getOrCreateClassroom(code, additionalData = {}) {
+  let classroom = await Classroom.findOne({ code });
+  if (!classroom) {
+    classroom = await Classroom.create({
+      code,
+      ...additionalData,
       studentAssignments: new Map(),
       studentPositions: new Map(),
       teacherPositions: new Map(),
-      createdAt: Date.now(),
-      ...additionalData
     });
   }
-  return classrooms.get(code);
+  return classroom;
 }
 
 // Serve frontend static files
@@ -101,50 +105,57 @@ function broadcastSnapshot(socket, classroom) {
   }
 }
 
-app.post("/auth/classrooms", (req, res) => {
-  const code = normalizeRoomCode(req.body?.code);
-  const { subject, timing, capacity, info } = req.body;
-  
-  if (!isValidRoomCode(code)) {
-    return res.status(400).json({ message: "Invalid room code format" });
+app.post("/auth/classrooms", async (req, res) => {
+  try {
+    const code = normalizeRoomCode(req.body?.code);
+    const { subject, timing, capacity, info } = req.body;
+    
+    if (!isValidRoomCode(code)) {
+      return res.status(400).json({ message: "Invalid room code format" });
+    }
+
+    const exists = await Classroom.findOne({ code });
+    const classroom = await getOrCreateClassroom(code, { subject, timing, capacity, info });
+    
+    return res.status(exists ? 200 : 201).json({
+      ok: true,
+      code: classroom.code,
+      exists: Boolean(exists),
+      subject: classroom.subject,
+      timing: classroom.timing,
+      capacity: classroom.capacity,
+      info: classroom.info,
+      participants: (classroom.studentAssignments?.size || 0) + (classroom.teacherPositions?.size || 0),
+    });
+  } catch (error) {
+    console.error("Error creating classroom:", error);
+    res.status(500).json({ message: "Error creating classroom" });
   }
-
-  const exists = classrooms.has(code);
-  const classroom = getOrCreateClassroom(code, { subject, timing, capacity, info });
-  
-  // If editing an existing classroom could be part of the flow later,
-  // we could update here if 'exists' is true. But for now this works.
-
-  return res.status(exists ? 200 : 201).json({
-    ok: true,
-    code,
-    exists,
-    subject: classroom.subject,
-    timing: classroom.timing,
-    capacity: classroom.capacity,
-    info: classroom.info,
-    participants: classroom.studentAssignments.size + classroom.teacherPositions.size,
-  });
 });
 
-app.get("/auth/classrooms/:code", (req, res) => {
-  const code = normalizeRoomCode(req.params.code);
-  if (!isValidRoomCode(code)) {
-    return res.status(400).json({ exists: false, message: "Invalid room code format" });
-  }
+app.get("/auth/classrooms/:code", async (req, res) => {
+  try {
+    const code = normalizeRoomCode(req.params.code);
+    if (!isValidRoomCode(code)) {
+      return res.status(400).json({ exists: false, message: "Invalid room code format" });
+    }
 
-  const classroom = classrooms.get(code);
-  return res.json({
-    exists: Boolean(classroom),
-    code,
-    subject: classroom?.subject,
-    timing: classroom?.timing,
-    capacity: classroom?.capacity,
-    info: classroom?.info,
-    participants: classroom
-      ? classroom.studentAssignments.size + classroom.teacherPositions.size
-      : 0,
-  });
+    const classroom = await Classroom.findOne({ code });
+    return res.json({
+      exists: Boolean(classroom),
+      code,
+      subject: classroom?.subject,
+      timing: classroom?.timing,
+      capacity: classroom?.capacity,
+      info: classroom?.info,
+      participants: classroom
+        ? (classroom.studentAssignments?.size || 0) + (classroom.teacherPositions?.size || 0)
+        : 0,
+    });
+  } catch (error) {
+    console.error("Error fetching classroom:", error);
+    res.status(500).json({ exists: false, message: "Error fetching classroom" });
+  }
 });
 
 // Serve index.html for SPA routing (only if build exists)
@@ -155,7 +166,7 @@ if (clientBuildExists) {
   });
 }
 
-io.on("connection", (socket) => {
+io.on("connection", async (socket) => {
   const role = getRole(socket);
   const roomCode = normalizeRoomCode(
     socket.handshake.auth?.roomCode || socket.handshake.query?.roomCode,
@@ -167,86 +178,133 @@ io.on("connection", (socket) => {
     return;
   }
 
-  if (!classrooms.has(roomCode) && role !== "teacher") {
-    socket.emit("room-error", { message: "Room does not exist" });
-    socket.disconnect(true);
-    return;
-  }
-
-  const classroom = getOrCreateClassroom(roomCode);
-  socket.data.roomCode = roomCode;
-  socket.join(roomCode);
-
-  console.log(`Socket connected: ${socket.id} (${role}) room=${roomCode}`);
-
-  if (role === "student") {
-    const slotIndex = getNextAvailableSlot(classroom);
-    if (slotIndex !== null) {
-      classroom.studentAssignments.set(socket.id, slotIndex);
-      io.to(roomCode).emit("student-assigned", { userId: socket.id, slotIndex });
-    }
-  }
-
-  broadcastSnapshot(socket, classroom);
-
-  socket.on("move", (payload = {}) => {
-    const nextX = Number(payload.x);
-    const nextZ = Number(payload.z);
-
-    if (!Number.isFinite(nextX) || !Number.isFinite(nextZ)) {
+  try {
+    // Fetch or create classroom from MongoDB
+    let classroom = await Classroom.findOne({ code: roomCode });
+    
+    if (!classroom && role !== "teacher") {
+      socket.emit("room-error", { message: "Room does not exist" });
+      socket.disconnect(true);
       return;
     }
 
-    classroom.studentPositions.set(socket.id, { x: nextX, z: nextZ });
-    io.to(roomCode).emit("student-move-update", {
-      userId: socket.id,
-      x: nextX,
-      z: nextZ,
+    if (!classroom) {
+      classroom = await getOrCreateClassroom(roomCode);
+    }
+
+    // Get or create an in-memory cache for this session
+    if (!activeClassrooms.has(roomCode)) {
+      activeClassrooms.set(roomCode, {
+        studentAssignments: new Map(),
+        studentPositions: new Map(),
+        teacherPositions: new Map(),
+      });
+    }
+
+    const activeSession = activeClassrooms.get(roomCode);
+    socket.data.roomCode = roomCode;
+    socket.join(roomCode);
+
+    console.log(`Socket connected: ${socket.id} (${role}) room=${roomCode}`);
+
+    if (role === "student") {
+      const slotIndex = getNextAvailableSlot(activeSession);
+      if (slotIndex !== null) {
+        activeSession.studentAssignments.set(socket.id, slotIndex);
+        io.to(roomCode).emit("student-assigned", { userId: socket.id, slotIndex });
+      }
+    }
+
+    broadcastSnapshot(socket, activeSession);
+
+    // Send whiteboard snapshot to new student
+    if (classroom.blackboardStrokes && classroom.blackboardStrokes.length > 0) {
+      socket.emit("blackboard-snapshot", { strokes: classroom.blackboardStrokes });
+    }
+
+    socket.on("move", (payload = {}) => {
+      const nextX = Number(payload.x);
+      const nextZ = Number(payload.z);
+
+      if (!Number.isFinite(nextX) || !Number.isFinite(nextZ)) {
+        return;
+      }
+
+      activeSession.studentPositions.set(socket.id, { x: nextX, z: nextZ });
+      io.to(roomCode).emit("student-move-update", {
+        userId: socket.id,
+        x: nextX,
+        z: nextZ,
+      });
+
+      // Compatibility event expected by older client builds.
+      io.to(roomCode).emit("update", { id: socket.id, x: nextX, z: nextZ });
     });
 
-    // Compatibility event expected by older client builds.
-    io.to(roomCode).emit("update", { id: socket.id, x: nextX, z: nextZ });
-  });
+    socket.on("teacher-move", (payload = {}) => {
+      const nextX = Number(payload.x);
+      const nextZ = Number(payload.z);
 
-  socket.on("teacher-move", (payload = {}) => {
-    const nextX = Number(payload.x);
-    const nextZ = Number(payload.z);
+      if (!Number.isFinite(nextX) || !Number.isFinite(nextZ)) {
+        return;
+      }
 
-    if (!Number.isFinite(nextX) || !Number.isFinite(nextZ)) {
-      return;
-    }
+      activeSession.teacherPositions.set(socket.id, { x: nextX, z: nextZ });
+      io.to(roomCode).emit("teacher-move-update", { x: nextX, z: nextZ });
+    });
 
-    classroom.teacherPositions.set(socket.id, { x: nextX, z: nextZ });
-    io.to(roomCode).emit("teacher-move-update", { x: nextX, z: nextZ });
-  });
+    socket.on("teacher-instruction", (payload = {}) => {
+      if (typeof payload.direction !== "string") return;
+      io.to(roomCode).emit("teacher-instruction", { direction: payload.direction });
+    });
 
-  socket.on("teacher-instruction", (payload = {}) => {
-    if (typeof payload.direction !== "string") return;
-    io.to(roomCode).emit("teacher-instruction", { direction: payload.direction });
-  });
+    socket.on("teacher-student-instruction", (payload = {}) => {
+      const { userId, direction } = payload;
+      if (typeof userId !== "string" || typeof direction !== "string") return;
 
-  socket.on("teacher-student-instruction", (payload = {}) => {
-    const { userId, direction } = payload;
-    if (typeof userId !== "string" || typeof direction !== "string") return;
+      io.to(roomCode).emit("teacher-student-instruction", { userId, direction });
+    });
 
-    io.to(roomCode).emit("teacher-student-instruction", { userId, direction });
-  });
+    socket.on("blackboard-stroke", async (stroke) => {
+      if (!stroke) return;
+      // Store stroke in database
+      classroom.blackboardStrokes = classroom.blackboardStrokes || [];
+      classroom.blackboardStrokes.push(stroke);
+      // Limit to last 1000 strokes to avoid memory issues
+      if (classroom.blackboardStrokes.length > 1000) {
+        classroom.blackboardStrokes = classroom.blackboardStrokes.slice(-1000);
+      }
+      await classroom.save().catch(err => console.error("Error saving classroom:", err));
+      // Broadcast to all users in room
+      io.to(roomCode).emit("blackboard-stroke", stroke);
+    });
 
-  socket.on("disconnect", () => {
-    console.log(`Socket disconnected: ${socket.id}`);
+    socket.on("blackboard-clear", async () => {
+      classroom.blackboardStrokes = [];
+      await classroom.save().catch(err => console.error("Error saving classroom:", err));
+      io.to(roomCode).emit("blackboard-clear");
+    });
 
-    classroom.studentAssignments.delete(socket.id);
-    classroom.studentPositions.delete(socket.id);
-    classroom.teacherPositions.delete(socket.id);
+    socket.on("disconnect", () => {
+      console.log(`Socket disconnected: ${socket.id}`);
 
-    if (
-      classroom.studentAssignments.size === 0
-      && classroom.studentPositions.size === 0
-      && classroom.teacherPositions.size === 0
-    ) {
-      classrooms.delete(roomCode);
-    }
-  });
+      activeSession.studentAssignments.delete(socket.id);
+      activeSession.studentPositions.delete(socket.id);
+      activeSession.teacherPositions.delete(socket.id);
+
+      if (
+        activeSession.studentAssignments.size === 0
+        && activeSession.studentPositions.size === 0
+        && activeSession.teacherPositions.size === 0
+      ) {
+        activeClassrooms.delete(roomCode);
+      }
+    });
+  } catch (error) {
+    console.error("Socket connection error:", error);
+    socket.emit("room-error", { message: "Error connecting to room" });
+    socket.disconnect(true);
+  }
 });
 
 server.listen(PORT, "0.0.0.0", () => {

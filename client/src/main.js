@@ -218,6 +218,28 @@ async function renderRoute() {
   const { path, params } = parseHash();
 
   if (path === "/classroom") {
+    const roomCode = params.get("code") || "";
+    const roomRole = params.get("role") === "teacher" ? "teacher" : "student";
+    
+    if (roomCode) {
+      // Load classroom with specific room code
+      const page = renderClassroomPage(appRoot);
+      const session = createRuntimeSession(roomCode ? new URLSearchParams(`role=${roomRole}&roomCode=${roomCode}`) : new URLSearchParams(window.location.search));
+      
+      const classroomLoader = createClassroomLoader({
+        loadButton: page.loadButton,
+        setStatus: page.setStatus,
+        role: session.role,
+        canWriteBlackboard: session.canWriteBlackboard,
+      });
+      
+      page.loadButton.addEventListener("click", classroomLoader.handleLoadClick);
+      page.loadButton.addEventListener("mouseenter", () => classroomLoader.warmup().catch(() => {}), { once: true });
+      page.setStatus("Ready to load the classroom.", "Idle");
+      return;
+    }
+    
+    // Default legacy classroom without room code
     mountLegacyClassroom();
     return;
   }
@@ -341,7 +363,7 @@ async function renderRoute() {
       navigate(`/join?role=student`);
     },
     onRoomSelected: ({ roomCode, role: classroomRole }) => {
-      navigate(`/room?role=${classroomRole}&code=${encodeURIComponent(roomCode)}`);
+      navigate(`/classroom?role=${classroomRole}&code=${encodeURIComponent(roomCode)}`);
     },
     onResolveRooms: resolveExistingRooms,
   });
