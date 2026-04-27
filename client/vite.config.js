@@ -1,18 +1,22 @@
 import { defineConfig } from "vite";
 
+const SOCKET_TARGET = "http://localhost:3000";
+const AUTH_TARGET = "http://localhost:3000";
+
 export default defineConfig({
-  optimizeDeps: {
-    include: ["three", "socket.io-client"],
-  },
-  server: {
-    host: "0.0.0.0",
-    port: 5173,
-    proxy: {
-      // Proxy Socket.IO in dev so client and server can run concurrently.
-      "/socket.io": {
-        target: "http://localhost:3000",
-        ws: true,
-      },
+    server: {
+        host: "0.0.0.0",
+        port: 5173,
+        proxy: {
+            "/socket.io": {
+                target: SOCKET_TARGET,
+                ws: true,
+            },
+            "/auth": {
+                target: AUTH_TARGET,
+                changeOrigin: true,
+            },
+        },
     },
-  },
+
 });
