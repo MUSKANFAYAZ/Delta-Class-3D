@@ -9,6 +9,7 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const authRouter = require("./routes/auth");
 const Classroom = require("./models/Classroom");
+const { authMiddleware, verifyToken } = require("./lib/auth");
 
 const PORT = process.env.PORT || 3000;
 const MAX_STUDENT_SLOTS = 25;
@@ -44,6 +45,43 @@ function isValidRoomCode(code) {
   return ROOM_CODE_REGEX.test(code);
 }
 
+function getRoomOwnerId(room) {
+  if (!room || typeof room !== "object") return null;
+
+  const knownOwnerKeys = [
+    "hostId",
+    "teacherId",
+    "ownerId",
+    "createdBy",
+    "creatorId",
+    "userId",
+  ];
+
+  for (const key of knownOwnerKeys) {
+    const owner = room[key];
+    if (typeof owner === "string" || typeof owner === "number") {
+      return String(owner);
+    }
+    if (owner && typeof owner === "object") {
+      if (typeof owner.id === "string" || typeof owner.id === "number") return String(owner.id);
+      if (typeof owner._id === "string" || typeof owner._id === "number") return String(owner._id);
+      if (typeof owner.sub === "string" || typeof owner.sub === "number") return String(owner.sub);
+    }
+  }
+
+  const host = room.host;
+  if (typeof host === "string" || typeof host === "number") {
+    return String(host);
+  }
+  if (host && typeof host === "object") {
+    if (typeof host.id === "string" || typeof host.id === "number") return String(host.id);
+    if (typeof host._id === "string" || typeof host._id === "number") return String(host._id);
+    if (typeof host.sub === "string" || typeof host.sub === "number") return String(host.sub);
+  }
+
+  return null;
+}
+
 async function getOrCreateClassroom(code, additionalData = {}) {
   let classroom = await Classroom.findOne({ code });
   if (!classroom) {
@@ -56,6 +94,17 @@ async function getOrCreateClassroom(code, additionalData = {}) {
     });
   }
   return classroom;
+}
+
+function getUserFromAuthHeader(req) {
+  const header = String(req.headers.authorization || "");
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  if (!match) return null;
+  try {
+    return verifyToken(match[1]);
+  } catch {
+    return null;
+  }
 }
 
 // Serve frontend static files
@@ -105,7 +154,7 @@ function broadcastSnapshot(socket, classroom) {
   }
 }
 
-app.post("/auth/classrooms", async (req, res) => {
+app.post("/auth/classrooms", authMiddleware, async (req, res) => {
   try {
     const code = normalizeRoomCode(req.body?.code);
     const { subject, timing, capacity, info } = req.body;
@@ -115,7 +164,17 @@ app.post("/auth/classrooms", async (req, res) => {
     }
 
     const exists = await Classroom.findOne({ code });
-    const classroom = await getOrCreateClassroom(code, { subject, timing, capacity, info });
+    if (exists && String(exists.createdBy) !== String(req.user.sub)) {
+      return res.status(403).json({ message: "Classroom already exists and belongs to another teacher" });
+    }
+
+    const classroom = await getOrCreateClassroom(code, {
+      subject,
+      timing,
+      capacity,
+      info,
+      createdBy: req.user.sub,
+    });
     
     return res.status(exists ? 200 : 201).json({
       ok: true,
@@ -125,6 +184,7 @@ app.post("/auth/classrooms", async (req, res) => {
       timing: classroom.timing,
       capacity: classroom.capacity,
       info: classroom.info,
+      canDelete: String(classroom.createdBy) === String(req.user.sub),
       participants: (classroom.studentAssignments?.size || 0) + (classroom.teacherPositions?.size || 0),
     });
   } catch (error) {
@@ -141,6 +201,12 @@ app.get("/auth/classrooms/:code", async (req, res) => {
     }
 
     const classroom = await Classroom.findOne({ code });
+    const user = getUserFromAuthHeader(req);
+    const canDelete = Boolean(
+      classroom
+      && user?.sub
+      && String(classroom.createdBy) === String(user.sub)
+    );
     return res.json({
       exists: Boolean(classroom),
       code,
@@ -148,6 +214,7 @@ app.get("/auth/classrooms/:code", async (req, res) => {
       timing: classroom?.timing,
       capacity: classroom?.capacity,
       info: classroom?.info,
+      canDelete,
       participants: classroom
         ? (classroom.studentAssignments?.size || 0) + (classroom.teacherPositions?.size || 0)
         : 0,
@@ -179,17 +246,20 @@ io.on("connection", async (socket) => {
   }
 
   try {
-    // Fetch or create classroom from MongoDB
-    let classroom = await Classroom.findOne({ code: roomCode });
-    
-    if (!classroom && role !== "teacher") {
+    // Fetch classroom from MongoDB. If Mongo is temporarily unavailable,
+    // keep live room sync working from in-memory state.
+    let classroom = null;
+    try {
+      classroom = await Classroom.findOne({ code: roomCode });
+    } catch (dbError) {
+      console.error("Classroom lookup failed:", dbError?.message || dbError);
+    }
+
+    const hasActiveSession = activeClassrooms.has(roomCode);
+    if (!classroom && !hasActiveSession && role !== "teacher") {
       socket.emit("room-error", { message: "Room does not exist" });
       socket.disconnect(true);
       return;
-    }
-
-    if (!classroom) {
-      classroom = await getOrCreateClassroom(roomCode);
     }
 
     // Get or create an in-memory cache for this session
@@ -198,6 +268,9 @@ io.on("connection", async (socket) => {
         studentAssignments: new Map(),
         studentPositions: new Map(),
         teacherPositions: new Map(),
+        blackboardStrokes: Array.isArray(classroom?.blackboardStrokes)
+          ? [...classroom.blackboardStrokes]
+          : [],
       });
     }
 
@@ -217,9 +290,9 @@ io.on("connection", async (socket) => {
 
     broadcastSnapshot(socket, activeSession);
 
-    // Send whiteboard snapshot to new student
-    if (classroom.blackboardStrokes && classroom.blackboardStrokes.length > 0) {
-      socket.emit("blackboard-snapshot", { strokes: classroom.blackboardStrokes });
+    // Send whiteboard snapshot to newly connected user.
+    if (activeSession.blackboardStrokes.length > 0) {
+      socket.emit("blackboard-snapshot", { strokes: activeSession.blackboardStrokes });
     }
 
     socket.on("move", (payload = {}) => {
@@ -267,26 +340,32 @@ io.on("connection", async (socket) => {
 
     socket.on("blackboard-stroke", async (stroke) => {
       if (!stroke) return;
-      // Store stroke in database
-      classroom.blackboardStrokes = classroom.blackboardStrokes || [];
-      classroom.blackboardStrokes.push(stroke);
-      // Limit to last 1000 strokes to avoid memory issues
-      if (classroom.blackboardStrokes.length > 1000) {
-        classroom.blackboardStrokes = classroom.blackboardStrokes.slice(-1000);
+      // Keep an in-memory snapshot for live sync even if DB is temporarily unavailable.
+      activeSession.blackboardStrokes.push(stroke);
+      if (activeSession.blackboardStrokes.length > 1000) {
+        activeSession.blackboardStrokes = activeSession.blackboardStrokes.slice(-1000);
       }
-      await classroom.save().catch(err => console.error("Error saving classroom:", err));
-      // Broadcast to all users in room
+
+      // Persist when DB-backed classroom is available.
+      if (classroom) {
+        classroom.blackboardStrokes = [...activeSession.blackboardStrokes];
+        await classroom.save().catch((err) => console.error("Error saving classroom:", err));
+      }
+
       io.to(roomCode).emit("blackboard-stroke", stroke);
     });
 
     socket.on("blackboard-clear", async () => {
-      classroom.blackboardStrokes = [];
-      await classroom.save().catch(err => console.error("Error saving classroom:", err));
+      activeSession.blackboardStrokes = [];
+      if (classroom) {
+        classroom.blackboardStrokes = [];
+        await classroom.save().catch((err) => console.error("Error saving classroom:", err));
+      }
       io.to(roomCode).emit("blackboard-clear");
     });
 
-    socket.on("disconnect", () => {
-      console.log(`Socket disconnected: ${socket.id}`);
+    socket.on("disconnect", (reason) => {
+      console.log(`Socket disconnected: ${socket.id} reason=${reason}`);
 
       activeSession.studentAssignments.delete(socket.id);
       activeSession.studentPositions.delete(socket.id);
@@ -296,6 +375,7 @@ io.on("connection", async (socket) => {
         activeSession.studentAssignments.size === 0
         && activeSession.studentPositions.size === 0
         && activeSession.teacherPositions.size === 0
+        && activeSession.blackboardStrokes.length === 0
       ) {
         activeClassrooms.delete(roomCode);
       }
@@ -306,6 +386,37 @@ io.on("connection", async (socket) => {
     socket.disconnect(true);
   }
 });
+
+// DELETE classroom logic
+app.delete("/auth/classrooms/:code", authMiddleware, async (req, res) => {
+  try {
+    const code = normalizeRoomCode(req.params.code);
+    if (!isValidRoomCode(code)) {
+      return res.status(400).json({ ok: false, message: "Invalid room code format" });
+    }
+
+    const room = activeClassrooms.get(code);
+    if (!room) {
+      return res.status(404).json({ ok: false, message: "Room not found" });
+    }
+
+    const ownerId = getRoomOwnerId(room);
+    const requesterId = String(req.user?.sub || "");
+    if (!ownerId || ownerId !== requesterId) {
+      return res.status(403).json({
+        ok: false,
+        message: "Only the classroom creator can delete this class",
+      });
+    }
+
+    activeClassrooms.delete(code);
+    return res.json({ ok: true, message: "Classroom deleted" });
+  } catch (error) {
+    console.error("Error deleting classroom:", error);
+    return res.status(500).json({ ok: false, message: "Error deleting classroom" });
+  }
+});
+
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`✓ Server started on port ${PORT}`);

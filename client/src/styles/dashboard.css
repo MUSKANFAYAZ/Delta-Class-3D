@@ -156,6 +156,76 @@
   flex-wrap: wrap;
 }
 
+.dc-user-wrap {
+  position: relative;
+}
+
+.dc-user-trigger {
+  min-width: 110px;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dc-user-trigger::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid #4c1d95;
+  border-bottom: 2px solid #4c1d95;
+  transform: rotate(45deg) translateY(-1px);
+  transition: transform 0.15s ease;
+}
+
+.dc-user-trigger[aria-expanded="true"]::after {
+  transform: rotate(-135deg) translateY(-1px);
+}
+
+.dc-user-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 180px;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(166, 124, 237, 0.45);
+  background:
+    radial-gradient(circle at top right, rgba(147, 51, 234, 0.12), transparent 55%),
+    linear-gradient(150deg, #ffffff, #f8f1ff 82%);
+  box-shadow: 0 12px 26px rgba(55, 20, 110, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 120;
+}
+
+.dc-user-menu-item {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: #24124a;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 9px 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.dc-user-menu-item:hover {
+  background: rgba(106, 62, 191, 0.12);
+  border-color: rgba(106, 62, 191, 0.2);
+}
+
+.dc-user-menu-item--danger {
+  color: #9f1239;
+}
+
+.dc-user-menu-item--danger:hover {
+  background: rgba(244, 63, 94, 0.12);
+  border-color: rgba(244, 63, 94, 0.24);
+}
+
 .dc-cards-wrap {
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid var(--dc-border);
@@ -203,15 +273,22 @@
     linear-gradient(140deg, rgba(255, 255, 255, 0.98), rgba(253, 246, 255, 0.92));
   box-shadow: 0 10px 20px rgba(13, 42, 75, 0.08);
   padding: 14px;
+  padding-right: 52px;
   text-align: left;
   cursor: pointer;
   transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  position: relative;
 }
 
 .dc-room-card:hover {
   transform: translateY(-6px) scale(1.02);
   box-shadow: 0 24px 38px rgba(44, 30, 82, 0.22);
   border-color: rgba(106, 62, 191, 0.46);
+}
+
+.dc-room-card:focus-visible {
+  outline: 3px solid rgba(106, 62, 191, 0.35);
+  outline-offset: 2px;
 }
 
 .dc-room-card-top {
@@ -662,6 +739,42 @@
   justify-content: flex-end;
   gap: 8px;
   margin-top: 12px;
+}
+
+.btn-delete-room {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  background: #fde7ee;
+  color: #b4234f;
+  border: 1px solid rgba(236, 72, 153, 0.26);
+  padding: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, border-color 0.2s, transform 0.16s ease;
+  z-index: 2;
+}
+
+.btn-delete-room:hover {
+  background: #fbd0de;
+  border-color: rgba(190, 24, 93, 0.35);
+  transform: translateY(-1px);
+}
+
+.btn-delete-room:focus-visible {
+  outline: 2px solid rgba(190, 24, 93, 0.45);
+  outline-offset: 2px;
+}
+
+.btn-delete-room-icon {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
 }
 
 

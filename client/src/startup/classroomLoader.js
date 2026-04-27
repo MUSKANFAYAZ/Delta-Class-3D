@@ -13,7 +13,13 @@ async function loadSocketClientModule() {
   return import("socket.io-client");
 }
 
-export function createClassroomLoader({ loadButton, setStatus, role, canWriteBlackboard }) {
+export function createClassroomLoader({
+  loadButton,
+  setStatus,
+  role,
+  canWriteBlackboard,
+  roomCode = "",
+}) {
   const lowBandwidth = isLowBandwidthConnection();
   const strictLowBandwidth = isStrictLowBandwidthConnection();
   let bootPromise = null;
@@ -56,8 +62,8 @@ export function createClassroomLoader({ loadButton, setStatus, role, canWriteBla
           path: "/socket.io",
           // Allow polling fallback on constrained networks, then upgrade when possible.
           transports: ["polling", "websocket"],
-          auth: { role, canWriteBlackboard },
-          query: { role, canWriteBlackboard: String(canWriteBlackboard) },
+          auth: { role, roomCode, canWriteBlackboard },
+          query: { role, roomCode, canWriteBlackboard: String(canWriteBlackboard) },
           reconnection: true,
         });
 

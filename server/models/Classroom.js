@@ -30,6 +30,12 @@ const classroomSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
     createdAt: {
       type: Date,
       default: Date.now,

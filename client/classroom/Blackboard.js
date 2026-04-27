@@ -221,9 +221,11 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
       flushTimer = null;
     }
     clearBoard(false);
-    const ops = Array.isArray(snapshot.ops) ? snapshot.ops : [];
-    for (const op of ops) {
-      applyStroke(op);
+    const strokes = Array.isArray(snapshot.strokes)
+      ? snapshot.strokes
+      : (Array.isArray(snapshot.ops) ? snapshot.ops : []);
+    for (const stroke of strokes) {
+      applyStroke(stroke);
     }
   }
 

@@ -1,14 +1,5 @@
 import "./styles.css";
-import { renderClassroomPage } from "./classroomPage.js";
-import { createClassroomLoader } from "./startup/classroomLoader.js";
 import { registerServiceWorker } from "./startup/registerServiceWorker.js";
-import { createRuntimeSession } from "./config/runtimeSession.js";
-import { mountDashboard } from "./features/dashboard/dashboardPage.js";
-import { mountLogin } from "./features/auth/login.js";
-import { mountRegister } from "./features/auth/register.js";
-import { mountJoinClassroomPage } from "./features/dashboard/joinClassroomPage.js";
-import { mountRoomPage } from "./features/dashboard/roomPage.js";
-import { mountCreateClassroomPage } from "./features/dashboard/createClassroomPage.js";
 
 registerServiceWorker();
 
@@ -22,6 +13,7 @@ const AUTH = {
 const STORAGE = {
   network: "delta-network-profile",
 };
+
 function getToken() {
   return localStorage.getItem(AUTH.tokenKey) || "";
 }
@@ -59,6 +51,28 @@ async function loadSocketClientModule() {
   }
 }
 
+function runWhenIdle(task) {
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(task, { timeout: 1200 });
+  } else {
+    window.setTimeout(task, 250);
+  }
+}
+
+let dashboardChunkPrefetched = false;
+function prefetchDashboardRouteChunks() {
+  if (dashboardChunkPrefetched) return;
+  dashboardChunkPrefetched = true;
+  runWhenIdle(() => {
+    import("./features/dashboard/createClassroomPage.js").catch(() => {});
+    import("./features/dashboard/joinClassroomPage.js").catch(() => {});
+    import("./features/dashboard/roomPage.js").catch(() => {});
+    import("./classroomPage.js").catch(() => {});
+    import("./startup/classroomLoader.js").catch(() => {});
+    import("./config/runtimeSession.js").catch(() => {});
+  });
+}
+
 function isLowBandwidthConnection() {
   const forcedProfile = localStorage.getItem(STORAGE.network);
   if (forcedProfile === "2g") return true;
@@ -90,6 +104,7 @@ async function startSocketClassroom({ role, roomCode }) {
 
     const onConnect = () => {
       cleanup();
+      // Ensure the role here correctly dictates canWriteBlackboard
       startClassroom(socket, role, {
         canWriteBlackboard: role === "teacher",
         lowBandwidth: isLowBandwidthConnection(),
@@ -118,7 +133,6 @@ function navigate(path) {
     renderRoute();
     return;
   }
-
   window.location.hash = path;
 }
 
@@ -155,15 +169,30 @@ async function resolveExistingRooms() {
 
   const checks = await Promise.all(
     rooms.map(async (room) => {
-      const code = String(room.code || "")
-        .trim()
-        .toLowerCase();
+      const code = String(room.code || "").trim().toLowerCase();
       if (!code) return null;
       try {
         const data = await api(`/classrooms/${encodeURIComponent(code)}`);
-        return data?.exists ? { ...room, code } : null;
+        if (data?.exists === false) {
+          return null;
+        }
+
+        if (data?.exists) {
+          return {
+            ...room,
+            code,
+            canDelete: Boolean(data?.canDelete),
+            host: Boolean(data?.canDelete) || Boolean(room.host),
+            subject: data?.subject ?? room.subject ?? "",
+            timing: data?.timing ?? room.timing ?? "",
+          };
+        }
+
+        // Unknown payload shape: keep local room instead of losing it.
+        return { ...room, code };
       } catch {
-        return null;
+        // Temporary API/DNS issues should not wipe the user's saved classrooms.
+        return { ...room, code };
       }
     }),
   );
@@ -184,21 +213,30 @@ function encodeNextPath(path) {
   return encodeURIComponent(path);
 }
 
-function mountLegacyClassroom() {
+async function mountLegacyClassroom(params) {
+  const [
+    { renderClassroomPage },
+    { createClassroomLoader },
+    { createRuntimeSession },
+  ] = await Promise.all([
+    import("./classroomPage.js"),
+    import("./startup/classroomLoader.js"),
+    import("./config/runtimeSession.js"),
+  ]);
+
   const page = renderClassroomPage(appRoot);
-  const session = createRuntimeSession(new URLSearchParams(window.location.search));
+  const session = createRuntimeSession(params);
 
   const classroomLoader = createClassroomLoader({
     loadButton: page.loadButton,
     setStatus: page.setStatus,
     role: session.role,
     canWriteBlackboard: session.canWriteBlackboard,
+    roomCode: params.get("roomCode") || params.get("code") || "",
   });
 
   const warmupClassroomModules = () => {
-    classroomLoader.warmup().catch(() => {
-      // Warmup failures should not block user-initiated loading.
-    });
+    classroomLoader.warmup().catch(() => {});
   };
 
   page.loadButton.addEventListener("click", classroomLoader.handleLoadClick);
@@ -222,15 +260,25 @@ async function renderRoute() {
     const roomRole = params.get("role") === "teacher" ? "teacher" : "student";
     
     if (roomCode) {
-      // Load classroom with specific room code
+      const [
+        { renderClassroomPage },
+        { createRuntimeSession },
+        { createClassroomLoader },
+      ] = await Promise.all([
+        import("./classroomPage.js"),
+        import("./config/runtimeSession.js"),
+        import("./startup/classroomLoader.js"),
+      ]);
+
       const page = renderClassroomPage(appRoot);
-      const session = createRuntimeSession(roomCode ? new URLSearchParams(`role=${roomRole}&roomCode=${roomCode}`) : new URLSearchParams(window.location.search));
+      const session = createRuntimeSession(new URLSearchParams(`role=${roomRole}&roomCode=${roomCode}`));
       
       const classroomLoader = createClassroomLoader({
         loadButton: page.loadButton,
         setStatus: page.setStatus,
         role: session.role,
-        canWriteBlackboard: session.canWriteBlackboard,
+        canWriteBlackboard: session.role === "teacher",
+        roomCode,
       });
       
       page.loadButton.addEventListener("click", classroomLoader.handleLoadClick);
@@ -238,9 +286,7 @@ async function renderRoute() {
       page.setStatus("Ready to load the classroom.", "Idle");
       return;
     }
-    
-    // Default legacy classroom without room code
-    mountLegacyClassroom();
+    await mountLegacyClassroom(params);
     return;
   }
 
@@ -249,6 +295,7 @@ async function renderRoute() {
   const next = String(params.get("next") || "").trim();
 
   if (path === "/login") {
+    const { mountLogin } = await import("./features/auth/login.js");
     mountLogin(appRoot, {
       api,
       role,
@@ -270,6 +317,7 @@ async function renderRoute() {
   }
 
   if (path === "/register") {
+    const { mountRegister } = await import("./features/auth/register.js");
     mountRegister(appRoot, {
       api,
       role,
@@ -285,6 +333,7 @@ async function renderRoute() {
   }
 
   if (path === "/join") {
+    const { mountJoinClassroomPage } = await import("./features/dashboard/joinClassroomPage.js");
     mountJoinClassroomPage(appRoot, {
       defaultCode: localStorage.getItem("delta-active-room") || "",
       onBack: () => navigate(`/dashboard?role=${role}`),
@@ -304,25 +353,27 @@ async function renderRoute() {
   }
 
   if (path === "/create") {
+    const { mountCreateClassroomPage } = await import("./features/dashboard/createClassroomPage.js");
     mountCreateClassroomPage(appRoot, {
       onBack: () => navigate(`/dashboard?role=${role}`),
       onSave: async (payload) => {
-        const normalized = String(payload.code || "")
-          .trim()
-          .toLowerCase();
+        const normalized = String(payload.code || "").trim().toLowerCase();
         await api("/classrooms", {
           method: "POST",
           body: { ...payload, code: normalized },
         });
         rememberRoom({ ...payload, code: normalized, host: true, at: Date.now() });
         localStorage.setItem("delta-active-room", normalized);
-        navigate(`/dashboard?role=teacher`);
+        
+        // Ensure teacher role is explicitly set on navigation
+        navigate(`/room?role=teacher&code=${encodeURIComponent(normalized)}`);
       },
     });
     return;
   }
 
   if (path === "/room") {
+    const { mountRoomPage } = await import("./features/dashboard/roomPage.js");
     const roomCode = String(params.get("code") || "").trim().toLowerCase();
     const roomRole = params.get("role") === "teacher" ? "teacher" : "student";
 
@@ -354,19 +405,19 @@ async function renderRoute() {
     return;
   }
 
+  // Dashboard must receive 'api' to handle the modular Delete button logic
+  const { mountDashboard } = await import("./features/dashboard/dashboardPage.js");
   mountDashboard(appRoot, {
+    api, 
     onLoginRequested: () => navigate(`/login?role=${role}`),
-    onCreateRequested: () => {
-      navigate("/create?role=teacher");
-    },
-    onJoinRequested: () => {
-      navigate(`/join?role=student`);
-    },
+    onCreateRequested: () => navigate("/create?role=teacher"),
+    onJoinRequested: () => navigate(`/join?role=student`),
     onRoomSelected: ({ roomCode, role: classroomRole }) => {
       navigate(`/classroom?role=${classroomRole}&code=${encodeURIComponent(roomCode)}`);
     },
     onResolveRooms: resolveExistingRooms,
   });
+  prefetchDashboardRouteChunks();
 }
 
 window.addEventListener("hashchange", renderRoute);
