@@ -72,6 +72,31 @@ export function setupImageSync({
         }
       };
 
+      const micBtn = document.createElement("button");
+      micBtn.className = "dc-btn dc-btn-secondary";
+      micBtn.id = "presentation-mic-btn";
+      
+      const updateMicBtnState = () => {
+        const mainMuteBtn = document.getElementById("mute-button");
+        if (mainMuteBtn) {
+          const isNowMuted = mainMuteBtn.title === "Unmute Mic";
+          micBtn.textContent = isNowMuted ? "Unmute Mic" : "Mute Mic";
+          micBtn.style.backgroundColor = isNowMuted ? "" : "#16a34a";
+          micBtn.style.color = isNowMuted ? "" : "#fff";
+        }
+      };
+      
+      // Initial state
+      setTimeout(updateMicBtnState, 0);
+
+      micBtn.onclick = () => {
+        const mainMuteBtn = document.getElementById("mute-button");
+        if (mainMuteBtn) {
+          mainMuteBtn.click();
+          updateMicBtnState();
+        }
+      };
+
       const exitBtn = document.createElement("button");
       exitBtn.className = "dc-btn dc-btn-danger";
       exitBtn.textContent = "Stop Broadcast";
@@ -82,6 +107,7 @@ export function setupImageSync({
 
       controls.appendChild(prevBtn);
       controls.appendChild(nextBtn);
+      controls.appendChild(micBtn);
       controls.appendChild(exitBtn);
       presentationOverlay.appendChild(controls);
     }
@@ -222,14 +248,29 @@ export function setupImageSync({
       currentImages = images;
       currentSlideIndex = 0;
 
+      // Auto-unmute mic when sharing
+      const mainMuteBtn = document.getElementById("mute-button");
+      if (mainMuteBtn && mainMuteBtn.title === "Unmute Mic") {
+        mainMuteBtn.click(); // trigger unmute
+      }
+
+      ensurePresentationOverlay().style.display = "flex";
+      updateSlide(0);
+
+      // Update mic button on overlay
+      const micBtn = document.getElementById("presentation-mic-btn");
+      if (micBtn && mainMuteBtn) {
+        const isNowMuted = mainMuteBtn.title === "Unmute Mic";
+        micBtn.textContent = isNowMuted ? "Unmute Mic" : "Mute Mic";
+        micBtn.style.backgroundColor = isNowMuted ? "" : "#16a34a";
+        micBtn.style.color = isNowMuted ? "" : "#fff";
+      }
+
       // Send JUST the current image to the students to save bandwidth initially
       socket.emit("presentation-start", { 
         image: currentImages[currentSlideIndex], 
         index: currentSlideIndex 
       });
-
-      ensurePresentationOverlay().style.display = "flex";
-      updateSlide(0);
 
       // Reset the input so that new files can be chosen later if needed
       fileInput.value = "";

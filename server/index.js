@@ -471,12 +471,12 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`✓ Server started on port ${PORT}`);
 });
 
-const MONGO_URI = process.env.MONGO_URI;
+const MONGO_URI = process.env.MONGO_URI || process.env.MONGO_URL || process.env.DATABASE_URL;
 if (MONGO_URI) {
   mongoose
     .connect(MONGO_URI, { dbName: process.env.MONGO_DB || undefined })
     .then(() => console.log("✓ MongoDB connected"))
     .catch((e) => console.error("MongoDB connection failed:", e?.message || e));
 } else {
-  console.warn("MONGO_URI not set — auth storage will not work until MongoDB is configured.");
+  console.warn("MONGO_URI or MONGO_URL not set — auth storage will not work until MongoDB is configured.");
 }
