@@ -466,6 +466,15 @@ app.delete("/auth/classrooms/:code", authMiddleware, async (req, res) => {
   }
 });
 
+// Global Error Handler for Express 5+
+app.use((err, req, res, next) => {
+  console.error("Unhandled Backend Error:", err.stack || err);
+  const status = err.status || 500;
+  res.status(status).json({ 
+    message: "Internal Server Error", 
+    detail: err.message || "Unknown database or execution error" 
+  });
+});
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`✓ Server started on port ${PORT}`);
