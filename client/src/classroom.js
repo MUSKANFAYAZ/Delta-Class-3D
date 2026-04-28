@@ -30,6 +30,20 @@ export function startClassroom(socket, role, options = {}) {
     teacher,
   });
 
+  // Presentation synchronization via ImageSync
+  import("../classroom/ImageSync.js").then(({ setupImageSync }) => {
+    const presentationButton = document.getElementById("presentation-button");
+    const appRoot = document.getElementById("app");
+    setupImageSync({
+      socket,
+      role,
+      presentationButton,
+      appRoot
+    });
+  }).catch((error) => {
+    console.error("Failed to initialize Image Sync module:", error);
+  });
+
   // Defer heavier interaction modules so first classroom render appears faster on slow networks.
   Promise.all([
     import("../classroom/CameraSystem.js"),

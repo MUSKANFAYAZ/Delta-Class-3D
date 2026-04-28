@@ -152,6 +152,10 @@ function broadcastSnapshot(socket, classroom) {
   for (const [, pos] of classroom.teacherPositions.entries()) {
     socket.emit("teacher-move-update", { x: pos.x, z: pos.z });
   }
+
+  if (classroom.presentation) {
+    socket.emit("presentation-start", classroom.presentation);
+  }
 }
 
 app.post("/auth/classrooms", authMiddleware, async (req, res) => {
@@ -362,6 +366,30 @@ io.on("connection", async (socket) => {
         await classroom.save().catch((err) => console.error("Error saving classroom:", err));
       }
       io.to(roomCode).emit("blackboard-clear");
+    });
+
+    socket.on("presentation-start", (payload) => {
+      if (role === "teacher") {
+        activeSession.presentation = payload;
+        // Broadcast only the initial slide
+        io.to(roomCode).emit("presentation-start", payload);
+      }
+    });
+
+    socket.on("presentation-update", (payload) => {
+      if (role === "teacher" && activeSession.presentation) {
+        activeSession.presentation.index = payload.index;
+        // Keep a copy of the current image on the server in case someone reconnects late
+        activeSession.presentation.image = payload.image;
+        io.to(roomCode).emit("presentation-update", payload);
+      }
+    });
+
+    socket.on("presentation-stop", () => {
+      if (role === "teacher") {
+        activeSession.presentation = null;
+        io.to(roomCode).emit("presentation-stop");
+      }
     });
 
     socket.on("disconnect", (reason) => {
