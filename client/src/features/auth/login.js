@@ -1,4 +1,3 @@
-import { resetFirebaseOtpFlow, sendFirebaseOtp, verifyFirebaseOtp } from "./firebase.js";
 
 function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
@@ -36,7 +35,6 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
     placeholder: "Password (min 6 chars)",
     autocomplete: "current-password",
   });
-  const otp = el("input", { class: "dc-input dc-input-otp", placeholder: "OTP", inputmode: "numeric" });
   const newPassword = el("input", { class: "dc-input", type: "password", placeholder: "New password", autocomplete: "new-password" });
   const confirmPassword = el("input", {
     class: "dc-input",
@@ -46,7 +44,6 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
   });
 
   let view = mode ? "login" : "choose";
-  let firebaseIdToken = "";
 
   async function loginWithPassword() {
     status.textContent = "";
@@ -74,38 +71,7 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
     }
   }
 
-  async function requestResetOtp() {
-    status.textContent = "";
-    const p = normalizePhone(phone.value);
-    if (!isValidPhoneWithCode(p)) {
-      status.textContent = "Enter phone with country code (example: +911234567890).";
-      return;
-    }
-    try {
-      await sendFirebaseOtp(api, p, "login");
-      status.textContent = "OTP sent for password reset.";
-    } catch (e) {
-      status.textContent = e?.message || "Could not send OTP.";
-    }
-  }
 
-  async function verifyResetOtp() {
-    status.textContent = "";
-    const p = normalizePhone(phone.value);
-    const code = String(otp.value || "").trim();
-    if (!p || !code) {
-      status.textContent = "Enter phone and OTP.";
-      return;
-    }
-    try {
-      const { otpToken } = await verifyFirebaseOtp(api, p, code, "login");
-      firebaseIdToken = otpToken;
-      status.textContent = "OTP verified. Set new password.";
-    } catch (e) {
-      firebaseIdToken = "";
-      status.textContent = e?.message || "OTP verification failed.";
-    }
-  }
 
   async function resetPassword() {
     status.textContent = "";
@@ -120,17 +86,11 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
       status.textContent = "Passwords do not match.";
       return;
     }
-    if (!firebaseIdToken) {
-      status.textContent = "Verify OTP first.";
-      return;
-    }
     try {
       await api("/reset-password", {
         method: "POST",
-        body: { phone: p, newPassword: pw, otpToken: firebaseIdToken },
+        body: { phone: p, newPassword: pw },
       });
-      firebaseIdToken = "";
-      resetFirebaseOtpFlow();
       status.textContent = "Password updated. Please login.";
       password.value = "";
       view = "login";
@@ -220,17 +180,12 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
   function renderResetBody() {
     return el("div", { class: "dc-auth-body" }, [
       el("h2", { class: "dc-login-title", text: "Reset password" }),
-      el("p", { class: "dc-muted dc-small", text: "Reset password with OTP." }),
+      el("p", { class: "dc-muted dc-small", text: "Set a new password." }),
       el("label", { class: "dc-field-label", for: "dc-reset-phone", text: "Phone" }),
       (() => {
         phone.id = "dc-reset-phone";
         return phone;
       })(),
-      el("div", { class: "dc-auth-actions dc-auth-actions-row" }, [
-        otp,
-        el("button", { type: "button", class: "dc-btn dc-btn-secondary", text: "Send OTP", onclick: requestResetOtp }),
-        el("button", { type: "button", class: "dc-btn dc-btn-ghost", text: "Verify", onclick: verifyResetOtp }),
-      ]),
       el("label", { class: "dc-field-label", for: "dc-reset-new", text: "New password" }),
       (() => {
         newPassword.id = "dc-reset-new";

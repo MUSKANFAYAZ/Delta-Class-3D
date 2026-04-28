@@ -6,9 +6,6 @@ function signAccessToken(payload) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: "7d" });
 }
 
-function signOtpToken(payload) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: "10m" });
-}
 
 function verifyToken(token) {
   return jwt.verify(token, JWT_SECRET);
@@ -26,5 +23,5 @@ function authMiddleware(req, res, next) {
   }
 }
 
-module.exports = { signAccessToken, signOtpToken, verifyToken, authMiddleware };
+module.exports = { signAccessToken, verifyToken, authMiddleware };
 

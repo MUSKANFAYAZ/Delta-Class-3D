@@ -1,4 +1,3 @@
-import { resetFirebaseOtpFlow, sendFirebaseOtp, verifyFirebaseOtp } from "./firebase.js";
 
 function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
@@ -34,7 +33,6 @@ export function mountRegister(root, { api, onDone, onGoLogin, role = "student", 
   const name = el("input", { class: "dc-input", placeholder: "Full name", autocomplete: "name" });
   const studentClass = el("input", { class: "dc-input", placeholder: "Class (eg. 10-A)" });
   const phone = el("input", { class: "dc-input", placeholder: "Phone number", inputmode: "tel", autocomplete: "tel" });
-  const otp = el("input", { class: "dc-input dc-input-otp", placeholder: "OTP", inputmode: "numeric" });
   const password = el("input", { class: "dc-input", type: "password", placeholder: "Password", autocomplete: "new-password" });
   const confirmPassword = el("input", {
     class: "dc-input",
@@ -49,42 +47,10 @@ export function mountRegister(root, { api, onDone, onGoLogin, role = "student", 
     idValue,
   ]);
 
-  let firebaseIdToken = "";
   let currentRole = role === "teacher" ? "teacher" : "student";
   let classFieldWrap = null;
 
-  async function requestOtp() {
-    status.textContent = "";
-    const p = normalizePhone(phone.value);
-    if (!isValidPhoneWithCode(p)) {
-      status.textContent = "Enter phone with country code (example: +911234567890).";
-      return;
-    }
-    try {
-      await sendFirebaseOtp(api, p, "signup");
-      status.textContent = "OTP sent to your phone.";
-    } catch (e) {
-      status.textContent = e?.message || "Could not send OTP.";
-    }
-  }
 
-  async function verifyOtp() {
-    status.textContent = "";
-    const p = normalizePhone(phone.value);
-    const code = String(otp.value || "").trim();
-    if (!isValidPhoneWithCode(p) || !code) {
-      status.textContent = "Enter valid phone and OTP.";
-      return;
-    }
-    try {
-      const { otpToken } = await verifyFirebaseOtp(api, p, code, "signup");
-      firebaseIdToken = otpToken;
-      status.textContent = "OTP verified. You can register now.";
-    } catch (e) {
-      firebaseIdToken = "";
-      status.textContent = e?.message || "OTP verification failed.";
-    }
-  }
 
   async function submit() {
     status.textContent = "";
@@ -118,10 +84,6 @@ export function mountRegister(root, { api, onDone, onGoLogin, role = "student", 
       status.textContent = "Passwords do not match.";
       return;
     }
-    if (!firebaseIdToken) {
-      status.textContent = "Verify OTP first.";
-      return;
-    }
 
     const userId = generateId();
     try {
@@ -134,7 +96,6 @@ export function mountRegister(root, { api, onDone, onGoLogin, role = "student", 
           role: currentRole,
           studentClass: cls,
           userId,
-          otpToken: firebaseIdToken,
         },
       });
       if (data?.token) localStorage.setItem("delta-access-token", data.token);
@@ -142,7 +103,6 @@ export function mountRegister(root, { api, onDone, onGoLogin, role = "student", 
       idValue.textContent = userId;
       idWrap.hidden = false;
       status.textContent = "Signup successful. Please login.";
-      resetFirebaseOtpFlow();
       setTimeout(() => onGoLogin?.(currentRole), 500);
     } catch (e) {
       status.textContent = e?.message || "Registration failed.";
@@ -178,7 +138,7 @@ export function mountRegister(root, { api, onDone, onGoLogin, role = "student", 
   const card = el("div", { class: "dc-auth-card" }, [
     el("div", { class: "dc-auth-body" }, mode ? [
       el("h2", { class: "dc-login-title", text: "Create your account" }),
-      el("p", { class: "dc-muted dc-small", text: "OTP is required only for signup." }),
+      el("p", { class: "dc-muted dc-small", text: "Register a new account." }),
 
       el("label", { class: "dc-field-label", for: "dc-reg-role", text: "Role" }),
       (() => {
@@ -210,11 +170,6 @@ export function mountRegister(root, { api, onDone, onGoLogin, role = "student", 
         return phone;
       })(),
 
-      el("div", { class: "dc-auth-actions dc-auth-actions-row" }, [
-        otp,
-        el("button", { type: "button", class: "dc-btn dc-btn-secondary", text: "Send OTP", onclick: requestOtp }),
-        el("button", { type: "button", class: "dc-btn dc-btn-ghost", text: "Verify", onclick: verifyOtp }),
-      ]),
 
       el("label", { class: "dc-field-label", for: "dc-reg-pass", text: "Password" }),
       (() => {
@@ -248,8 +203,8 @@ export function mountRegister(root, { api, onDone, onGoLogin, role = "student", 
           ]),
         ]),
         el("div", { class: "dc-auth-hero-card" }, [
-          el("div", { class: "dc-auth-hero-title", text: "OTP-based signup" }),
-          el("div", { class: "dc-auth-hero-sub", text: "Request OTP -> verify -> register." }),
+          el("div", { class: "dc-auth-hero-title", text: "Quick signup" }),
+          el("div", { class: "dc-auth-hero-sub", text: "Register and start learning." }),
         ]),
       ]),
     ]),

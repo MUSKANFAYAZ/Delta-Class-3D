@@ -143,10 +143,7 @@
   width: 100%;
 }
 
-.dc-input-otp {
-  max-width: 140px;
-  margin-bottom: 0;
-}
+
 
 .dc-hidden {
   display: none !important;
