@@ -276,7 +276,14 @@ export function mountDashboard(
   }
 
   // --- EVENT LISTENERS ---
-  wrap.querySelector("#dc-create").addEventListener("click", () => onCreateRequested?.());
+  wrap.querySelector("#dc-create").addEventListener("click", () => {
+    const userRole = localStorage.getItem("delta-user-role") || "student";
+    if (userRole !== "teacher") {
+      window.alert("Only teachers can create classrooms.");
+      return;
+    }
+    onCreateRequested?.();
+  });
   wrap.querySelector("#dc-join").addEventListener("click", () => onJoinRequested?.());
 
   // Motivation Quote Animation

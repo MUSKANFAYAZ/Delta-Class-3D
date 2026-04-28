@@ -100,6 +100,7 @@ export function mountRegister(root, { api, onDone, onGoLogin, role = "student", 
       });
       if (data?.token) localStorage.setItem("delta-access-token", data.token);
       if (data?.user?.name) localStorage.setItem("delta-user-display", data.user.name);
+      if (data?.user?.role) localStorage.setItem("delta-user-role", data.user.role);
       idValue.textContent = userId;
       idWrap.hidden = false;
       status.textContent = "Signup successful. Please login.";

@@ -65,6 +65,7 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
       const data = await api("/login", { method: "POST", body: { phone: p, password: pw, role: currentRole } });
       if (data?.token) localStorage.setItem("delta-access-token", data.token);
       if (data?.user?.name) localStorage.setItem("delta-user-display", data.user.name);
+      if (data?.user?.role) localStorage.setItem("delta-user-role", data.user.role);
       onDone?.();
     } catch (e) {
       status.textContent = e?.message || "Login failed.";

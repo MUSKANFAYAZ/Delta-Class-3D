@@ -558,7 +558,7 @@ async function renderRoute() {
         localStorage.setItem("delta-active-room", normalized);
         
         // Ensure teacher role is explicitly set on navigation
-        navigate(`/room?role=teacher&code=${encodeURIComponent(normalized)}`);
+        navigate(`/dashboard?role=teacher`);
       },
     });
     return;
