@@ -380,6 +380,27 @@ io.on("connection", async (socket) => {
         activeClassrooms.delete(roomCode);
       }
     });
+
+    // Voice Chat / WebRTC Signaling
+    socket.emit("peer-joined", { userId: socket.id, role });
+    socket.broadcast.to(roomCode).emit("peer-joined", { userId: socket.id, role });
+
+    socket.on("webrtc-offer", ({ target, offer }) => {
+      io.to(target).emit("webrtc-offer", { caller: socket.id, offer });
+    });
+
+    socket.on("webrtc-answer", ({ target, answer }) => {
+      io.to(target).emit("webrtc-answer", { caller: socket.id, answer });
+    });
+
+    socket.on("webrtc-candidate", ({ target, candidate }) => {
+      io.to(target).emit("webrtc-candidate", { caller: socket.id, candidate });
+    });
+
+    socket.on("disconnect", () => {
+      io.to(roomCode).emit("peer-left", socket.id);
+    });
+
   } catch (error) {
     console.error("Socket connection error:", error);
     socket.emit("room-error", { message: "Error connecting to room" });

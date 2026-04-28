@@ -68,6 +68,7 @@ export function createClassroomLoader({
         });
 
         activeSocket = socket;
+        window.activeClassroomSocket = socket;
 
         if (!classroomStarted) {
           classroomStarted = true;
@@ -130,9 +131,24 @@ export function createClassroomLoader({
     });
   }
 
+  function disconnect() {
+    if (activeSocket) {
+      try {
+        activeSocket.disconnect();
+      } catch {
+        // ignore disconnect issues
+      }
+      activeSocket = null;
+    }
+    bootPromise = null;
+    bootRequested = false;
+    classroomStarted = false;
+  }
+
   return {
     handleLoadClick,
     warmup,
+    disconnect,
     lowBandwidth,
     strictLowBandwidth,
   };

@@ -13,6 +13,9 @@ const AUTH = {
 const STORAGE = {
   network: "delta-network-profile",
 };
+let activeClassroomSocket = null;
+let activeClassroomLoader = null;
+let activeVoiceSystem = null;
 
 function getToken() {
   return localStorage.getItem(AUTH.tokenKey) || "";
@@ -128,6 +131,118 @@ async function startSocketClassroom({ role, roomCode }) {
   });
 }
 
+function cleanupActiveClassroomConnection() {
+  if (activeVoiceSystem) {
+    try {
+      activeVoiceSystem.destroy();
+    } catch(e) { console.error(e); }
+    activeVoiceSystem = null;
+  }
+
+  if (activeClassroomLoader) {
+    activeClassroomLoader.disconnect();
+    activeClassroomLoader = null;
+  }
+
+  if (activeClassroomSocket) {
+    try {
+      activeClassroomSocket.disconnect();
+    } catch {
+      // ignore disconnect issues
+    }
+    activeClassroomSocket = null;
+    window.activeClassroomSocket = null;
+  }
+}
+
+function showConfirmDialog(title, message) {
+  return new Promise((resolve) => {
+    // Remove any existing confirm modal
+    const existing = document.getElementById("dc-confirm-modal");
+    if (existing) existing.remove();
+
+    const backdrop = document.createElement("div");
+    backdrop.id = "dc-confirm-modal";
+    backdrop.className = "dc-modal-backdrop";
+    backdrop.style.display = "flex";
+    
+    backdrop.innerHTML = `
+      <div class="dc-modal">
+        <h2>${title}</h2>
+        <p class="dc-exit-warning" style="margin: 1rem 0; color: var(--text-secondary);">${message}</p>
+        <div class="dc-modal-actions">
+          <button type="button" class="dc-btn dc-btn-danger" id="dc-confirm-btn">Confirm</button>
+          <button type="button" class="dc-btn dc-btn-ghost" id="dc-cancel-btn">Cancel</button>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(backdrop);
+    
+    const confirmBtn = backdrop.querySelector("#dc-confirm-btn");
+    const cancelBtn = backdrop.querySelector("#dc-cancel-btn");
+    
+    const cleanup = () => {
+      backdrop.remove();
+    };
+    
+    confirmBtn.addEventListener("click", () => {
+      cleanup();
+      resolve(true);
+    });
+    
+    cancelBtn.addEventListener("click", () => {
+      cleanup();
+      resolve(false);
+    });
+    
+    backdrop.addEventListener("click", (e) => {
+      if (e.target === backdrop) {
+        cleanup();
+        resolve(false);
+      }
+    });
+  });
+}
+
+async function handleExitFromClassroom({ role, roomCode, isTeacher }, exitAction) {
+  if (!isTeacher) {
+    if (exitAction?.action !== "exit") return false;
+    cleanupActiveClassroomConnection();
+    navigate(`/dashboard?role=${role}`);
+    return true;
+  }
+
+  // Teacher-specific logic
+  if (exitAction?.action === "end_call") {
+    const confirmEnd = await showConfirmDialog(
+      "End Class",
+      "End class now? This will delete the room and all students will be disconnected."
+    );
+    if (!confirmEnd) return false;
+
+    try {
+      await api(`/classrooms/${encodeURIComponent(roomCode)}`, { method: "DELETE" });
+    } catch (error) {
+      window.alert(error?.message || "Failed to end class.");
+      return false;
+    }
+
+    cleanupActiveClassroomConnection();
+    localStorage.removeItem("delta-active-room");
+    removeSavedRoom(roomCode);
+    navigate("/dashboard?role=teacher");
+    return true;
+  } else if (exitAction?.action === "take_break") {
+    cleanupActiveClassroomConnection();
+    localStorage.setItem("delta-active-room", roomCode);
+    navigate("/dashboard?role=teacher");
+    return true;
+  }
+
+  return false;
+}
+
 function navigate(path) {
   if (window.location.hash === `#${path}`) {
     renderRoute();
@@ -161,6 +276,16 @@ function readSavedRooms() {
   } catch {
     return [];
   }
+}
+
+function removeSavedRoom(roomCode) {
+  const normalizedCode = String(roomCode || "").trim().toLowerCase();
+  if (!normalizedCode) return;
+  const rooms = readSavedRooms();
+  const nextRooms = rooms.filter(
+    (room) => String(room.code || "").trim().toLowerCase() !== normalizedCode,
+  );
+  localStorage.setItem("delta-my-rooms", JSON.stringify(nextRooms));
 }
 
 async function resolveExistingRooms() {
@@ -224,16 +349,29 @@ async function mountLegacyClassroom(params) {
     import("./config/runtimeSession.js"),
   ]);
 
-  const page = renderClassroomPage(appRoot);
   const session = createRuntimeSession(params);
-
+  const role = session.role === "teacher" ? "teacher" : "student";
+  const roomCode = params.get("roomCode") || params.get("code") || "";
+  const page = renderClassroomPage(appRoot, {
+    role,
+    onExit: (exitAction) => {
+      handleExitFromClassroom({
+        role,
+        roomCode,
+        isTeacher: role === "teacher",
+      }, exitAction).catch((error) => {
+        console.error("Exit failed:", error);
+      });
+    },
+  });
   const classroomLoader = createClassroomLoader({
     loadButton: page.loadButton,
     setStatus: page.setStatus,
     role: session.role,
     canWriteBlackboard: session.canWriteBlackboard,
-    roomCode: params.get("roomCode") || params.get("code") || "",
+    roomCode,
   });
+  activeClassroomLoader = classroomLoader;
 
   const warmupClassroomModules = () => {
     classroomLoader.warmup().catch(() => {});
@@ -254,6 +392,9 @@ async function mountLegacyClassroom(params) {
 
 async function renderRoute() {
   const { path, params } = parseHash();
+  if (path !== "/classroom" && path !== "/room") {
+    cleanupActiveClassroomConnection();
+  }
 
   if (path === "/classroom") {
     const roomCode = params.get("code") || "";
@@ -270,7 +411,18 @@ async function renderRoute() {
         import("./startup/classroomLoader.js"),
       ]);
 
-      const page = renderClassroomPage(appRoot);
+      const page = renderClassroomPage(appRoot, {
+        role: roomRole,
+        onExit: (exitAction) => {
+          handleExitFromClassroom({
+            role: roomRole,
+            roomCode,
+            isTeacher: roomRole === "teacher",
+          }, exitAction).catch((error) => {
+            console.error("Exit failed:", error);
+          });
+        },
+      });
       const session = createRuntimeSession(new URLSearchParams(`role=${roomRole}&roomCode=${roomCode}`));
       
       const classroomLoader = createClassroomLoader({
@@ -280,8 +432,48 @@ async function renderRoute() {
         canWriteBlackboard: session.role === "teacher",
         roomCode,
       });
+      activeClassroomLoader = classroomLoader;
       
-      page.loadButton.addEventListener("click", classroomLoader.handleLoadClick);
+      const checkAndInitVoice = async () => {
+        if (window.activeClassroomSocket && !activeVoiceSystem) {
+          try {
+            const { VoiceSystem } = await import("../classroom/VoiceSystem.js");
+            activeVoiceSystem = new VoiceSystem(window.activeClassroomSocket, window.activeClassroomSocket.id, roomRole);
+            await activeVoiceSystem.initLocalStream();
+
+            if (page.muteButton) {
+              page.muteButton.addEventListener("click", () => {
+                const isMuted = activeVoiceSystem.toggleMute();
+                page.muteButton.innerHTML = isMuted
+                  ? '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>'
+                  : '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
+                page.muteButton.title = isMuted ? "Unmute Mic" : "Mute Mic";
+                page.muteButton.style.color = isMuted ? "#dc2626" : "#16a34a";
+              });
+            }
+
+            if (page.deafenButton && roomRole === "student") {
+              page.deafenButton.addEventListener("click", () => {
+                const isDeafened = activeVoiceSystem.toggleDeafen();
+                page.deafenButton.innerHTML = isDeafened
+                  ? '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>'
+                  : '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path></svg>';
+                page.deafenButton.title = isDeafened ? "Unmute Teacher" : "Mute Teacher";
+                page.deafenButton.style.color = isDeafened ? "#dc2626" : "#64748b";
+              });
+            }
+          } catch (e) {
+            console.error("Voice load err", e);
+          }
+        } else {
+          setTimeout(checkAndInitVoice, 500);
+        }
+      };
+      
+      page.loadButton.addEventListener("click", () => {
+        classroomLoader.handleLoadClick();
+        checkAndInitVoice();
+      });
       page.loadButton.addEventListener("mouseenter", () => classroomLoader.warmup().catch(() => {}), { once: true });
       page.setStatus("Ready to load the classroom.", "Idle");
       return;
@@ -388,15 +580,31 @@ async function renderRoute() {
       return;
     }
 
-    mountRoomPage(appRoot, {
+    let roomPageInstance = mountRoomPage(appRoot, {
       roomCode,
       role: roomRole,
-      onBack: () => navigate(`/dashboard?role=${roomRole}`),
+      onExit: (exitAction) => {
+        // Cleanup VoiceSystem before exiting
+        if (roomPageInstance && roomPageInstance.cleanupVoiceSystem) {
+          roomPageInstance.cleanupVoiceSystem();
+        }
+        
+        handleExitFromClassroom({
+          role: roomRole,
+          roomCode,
+          isTeacher: roomRole === "teacher",
+        }, exitAction).catch((error) => {
+          console.error("Exit failed:", error);
+        });
+      },
     });
 
     try {
-      await startSocketClassroom({ roomCode, role: roomRole });
+      const { socket } = await startSocketClassroom({ roomCode, role: roomRole });
+      activeClassroomSocket = socket;
+      window.activeClassroomSocket = socket;
       localStorage.setItem("delta-active-room", roomCode);
+
     } catch (e) {
       console.error(e);
       alert("Could not enter classroom. Check code/server and try again.");

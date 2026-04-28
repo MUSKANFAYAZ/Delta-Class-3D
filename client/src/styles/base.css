@@ -76,6 +76,28 @@ body {
   color: #166534;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.exit-btn {
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  background: linear-gradient(145deg, #fff, #f8fafc);
+  color: #1f2937;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.exit-btn:hover {
+  border-color: rgba(220, 38, 38, 0.45);
+  color: #991b1b;
+}
+
 .controls {
   position: absolute;
   left: 12px;
