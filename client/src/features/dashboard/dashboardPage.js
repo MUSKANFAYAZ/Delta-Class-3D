@@ -279,7 +279,31 @@ export function mountDashboard(
   wrap.querySelector("#dc-create").addEventListener("click", () => {
     const userRole = localStorage.getItem("delta-user-role") || "student";
     if (userRole !== "teacher") {
-      window.alert("Only teachers can create classrooms.");
+      const existing = document.getElementById("dc-alert-modal");
+      if (existing) existing.remove();
+
+      const backdrop = document.createElement("div");
+      backdrop.id = "dc-alert-modal";
+      backdrop.className = "dc-modal-backdrop";
+      backdrop.style.display = "flex";
+      
+      backdrop.innerHTML = `
+        <div class="dc-modal">
+          <h2>Access Denied</h2>
+          <p style="margin: 1rem 0; color: var(--text-secondary);">Only teachers can create classrooms.</p>
+          <div class="dc-modal-actions">
+            <button type="button" class="dc-btn dc-btn-primary" id="dc-alert-ok-btn">OK</button>
+          </div>
+        </div>
+      `;
+      
+      document.body.appendChild(backdrop);
+      
+      const close = () => backdrop.remove();
+      backdrop.querySelector("#dc-alert-ok-btn").addEventListener("click", close);
+      backdrop.addEventListener("click", (e) => {
+        if (e.target === backdrop) close();
+      });
       return;
     }
     onCreateRequested?.();

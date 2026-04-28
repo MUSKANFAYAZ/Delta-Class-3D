@@ -171,7 +171,7 @@ function showConfirmDialog(title, message) {
         <h2>${title}</h2>
         <p class="dc-exit-warning" style="margin: 1rem 0; color: var(--text-secondary);">${message}</p>
         <div class="dc-modal-actions">
-          <button type="button" class="dc-btn dc-btn-danger" id="dc-confirm-btn">Confirm</button>
+          <button type="button" class="dc-btn dc-btn-primary" id="dc-confirm-btn">Confirm</button>
           <button type="button" class="dc-btn dc-btn-ghost" id="dc-cancel-btn">Cancel</button>
         </div>
       </div>
