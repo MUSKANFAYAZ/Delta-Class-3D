@@ -14,7 +14,7 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
 
       <header class="dc-room-topbar">
 
-        <button type="button" class="dc-btn dc-btn-ghost" id="dc-room-exit" onclick="document.getElementById('test-modal').style.display='flex'">Exit (${role === "teacher" ? "Teacher" : "Student"})</button>
+        <button type="button" class="dc-btn dc-btn-ghost" id="dc-room-exit">Exit (${role === "teacher" ? "Teacher" : "Student"})</button>
 
         <div class="dc-room-meta">
 
@@ -52,34 +52,19 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
 
     
 
-    <!-- Simple Test Modal -->
-
-    <div id="test-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; align-items: center; justify-content: center;">
-
+    <div id="exit-modal-backdrop" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; align-items: center; justify-content: center;">
       <div style="background: white; padding: 20px; border-radius: 10px; text-align: center;">
-
-        <h3>Exit Confirmation</h3>
-
-        <p>Are you sure you want to exit?</p>
-
+        <h3 style="color: black;">Exit Confirmation</h3>
+        <p style="color: black; margin-bottom: 15px;">Are you sure you want to exit?</p>
         ${role === "teacher" ? `
-
-          <button onclick="alert('Take Break clicked')" style="margin: 5px; padding: 10px;">Take a Break</button>
-
-          <button onclick="alert('End Call clicked')" style="margin: 5px; padding: 10px;">End Call</button>
-
+          <button id="take-break-btn" class="dc-btn dc-btn-secondary" style="margin: 5px; padding: 10px;">Take a Break</button>
+          <button id="end-call-btn" class="dc-btn dc-btn-primary" style="margin: 5px; padding: 10px;">End Call</button>
         ` : `
-
-          <button onclick="alert('Cancel clicked')" style="margin: 5px; padding: 10px;">Cancel</button>
-
-          <button onclick="alert('Exit clicked')" style="margin: 5px; padding: 10px;">Exit</button>
-
+          <button id="cancel-exit-btn" class="dc-btn dc-btn-secondary" style="margin: 5px; padding: 10px;">Cancel</button>
+          <button id="confirm-exit-btn" class="dc-btn dc-btn-primary" style="margin: 5px; padding: 10px;">Exit</button>
         `}
-
       </div>
-
     </div>
-
   `;
 
 
@@ -167,51 +152,8 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
 
 
   const showModal = () => {
-
-    // First test with a simple alert to verify click is working
-
-    alert("Exit button clicked! Testing if this works.");
-
-    
-
-    console.log("Exit button clicked - showing modal");
-
-    console.log("Modal backdrop element:", modalBackdrop);
-
-    
-
-    // Try multiple approaches to make it visible
-
     modalBackdrop.style.display = "flex";
-
-    modalBackdrop.style.position = "fixed";
-
-    modalBackdrop.style.top = "0";
-
-    modalBackdrop.style.left = "0";
-
-    modalBackdrop.style.width = "100%";
-
-    modalBackdrop.style.height = "100%";
-
-    modalBackdrop.style.backgroundColor = "rgba(0, 0, 0, 0.5)";
-
-    modalBackdrop.style.zIndex = "9999";
-
-    modalBackdrop.style.alignItems = "center";
-
-    modalBackdrop.style.justifyContent = "center";
-
-    
-
     document.body.style.overflow = "hidden";
-
-    
-
-    console.log("Modal should now be visible with z-index 9999");
-
-    console.log("Modal backdrop styles:", modalBackdrop.style.cssText);
-
   };
 
 
