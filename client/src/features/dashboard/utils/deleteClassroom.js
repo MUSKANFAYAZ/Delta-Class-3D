@@ -1,10 +1,16 @@
+import { showConfirmDialog, showAlertDialog } from "../../../utils/dialogs.js";
+
 /**
  * Deletes a classroom by its room code.
  * @param {Function} api - The authenticated API function from main.js
  * @param {string} roomCode - The code of the room to delete.
  */
 export async function deleteClassroom(api, roomCode) {
-  if (!confirm(`Are you sure you want to delete classroom: ${roomCode}?`)) {
+  const confirmed = await showConfirmDialog(
+    "Delete Classroom",
+    `Are you sure you want to delete classroom: ${roomCode}?`
+  );
+  if (!confirmed) {
     return { ok: false };
   }
 
@@ -17,11 +23,11 @@ export async function deleteClassroom(api, roomCode) {
     console.error("Delete failed:", err);
     const message = String(err?.message || "");
     if (/only the classroom creator/i.test(message) || /creator can delete/i.test(message)) {
-      alert("Only the classroom creator can delete this class.");
+      await showAlertDialog("Error", "Only the classroom creator can delete this class.");
     } else if (/not found/i.test(message)) {
-      alert("This classroom is no longer active.");
+      await showAlertDialog("Error", "This classroom is no longer active.");
     } else {
-      alert(`Failed to delete classroom. ${message || "Please try again."}`);
+      await showAlertDialog("Error", `Failed to delete classroom. ${message || "Please try again."}`);
     }
     return { ok: false, error: err };
   }
