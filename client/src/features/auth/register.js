@@ -22,24 +22,34 @@ function normalizePhone(raw) {
   return value;
 }
 
-function normalizeCountryCode(raw) {
-  const cleaned = String(raw || "")
-    .trim()
-    .replace(/[^\d+]/g, "");
+const COUNTRY_CODES = [
+  "+91",
+  "+1",
+  "+44",
+  "+61",
+  "+65",
+  "+81",
+  "+86",
+  "+971",
+  "+880",
+  "+92",
+  "+94",
+  "+33",
+  "+49",
+];
 
-  if (!cleaned) return "+91";
-  if (cleaned.startsWith("+")) return `+${cleaned.slice(1).replace(/\D/g, "").slice(0, 3)}`;
-  return `+${cleaned.replace(/\D/g, "").slice(0, 3)}`;
+function createCountryCodeSelect(defaultCountryCode = "+91") {
+  const select = el("select", {
+    class: "dc-input dc-country-code",
+    autocomplete: "tel-country-code",
+  }, COUNTRY_CODES.map((code) => el("option", { value: code, text: code })));
+
+  select.value = COUNTRY_CODES.includes(defaultCountryCode) ? defaultCountryCode : "+91";
+  return select;
 }
 
 function createPhoneFields(defaultCountryCode = "+91") {
-  const countryCode = el("input", {
-    class: "dc-input",
-    placeholder: "+91",
-    inputmode: "tel",
-    autocomplete: "tel-country-code",
-    value: defaultCountryCode,
-  });
+  const countryCode = createCountryCodeSelect(defaultCountryCode);
 
   const phoneNumber = el("input", {
     class: "dc-input",
@@ -48,19 +58,11 @@ function createPhoneFields(defaultCountryCode = "+91") {
     autocomplete: "tel",
   });
 
-  countryCode.addEventListener("focus", () => {
-    if (countryCode.value === "+91") {
-      window.requestAnimationFrame(() => {
-        countryCode.setSelectionRange(countryCode.value.length, countryCode.value.length);
-      });
-    }
-  });
-
   return {
     countryCode,
     phoneNumber,
     getValue() {
-      const code = normalizeCountryCode(countryCode.value);
+      const code = String(countryCode.value || "+91");
       const number = String(phoneNumber.value || "").replace(/\D/g, "").slice(0, 10);
       return `${code}${number}`;
     },

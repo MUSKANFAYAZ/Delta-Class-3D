@@ -103,6 +103,24 @@ async function startSocketClassroom({ role, roomCode }) {
     const cleanup = () => {
       socket.off("connect", onConnect);
       socket.off("connect_error", onError);
+      socket.off("room-error", onRoomError);
+    };
+
+    const handleRoomDeleted = (message) => {
+      try {
+        socket.disconnect();
+      } catch {
+        // ignore disconnect issues
+      }
+      cleanupActiveClassroomConnection();
+      localStorage.removeItem("delta-active-room");
+      removeSavedRoom(roomCode);
+      if (typeof message === "string" && /deleted/i.test(message)) {
+        localStorage.setItem("delta-dashboard-notice", message);
+      } else {
+        localStorage.setItem("delta-dashboard-notice", "This classroom has been deleted.");
+      }
+      navigate(`/dashboard?role=${role}`);
     };
 
     const onConnect = () => {
@@ -114,6 +132,13 @@ async function startSocketClassroom({ role, roomCode }) {
         strictLowBandwidth: isLowBandwidthConnection(),
       });
       resolve({ socket });
+    };
+
+    const onRoomError = (payload = {}) => {
+      const message = String(payload?.message || "");
+      if (/deleted|has been deleted|room does not exist/i.test(message)) {
+        handleRoomDeleted(message);
+      }
     };
 
     const onError = (error) => {
@@ -128,6 +153,7 @@ async function startSocketClassroom({ role, roomCode }) {
 
     socket.on("connect", onConnect);
     socket.on("connect_error", onError);
+    socket.on("room-error", onRoomError);
   });
 }
 

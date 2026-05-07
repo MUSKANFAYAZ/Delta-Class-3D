@@ -256,6 +256,21 @@ export function mountDashboard(
     });
   }
 
+  async function syncRooms() {
+    if (!isLoggedIn) return;
+    try {
+      const rooms = typeof onResolveRooms === "function" ? await onResolveRooms() : readRooms();
+      renderCards(rooms);
+      const noCards = wrap.querySelector("#dc-no-cards");
+      if (noCards && !rooms.length) {
+        noCards.hidden = false;
+        noCards.textContent = "No classrooms yet. Create or join to see cards here.";
+      }
+    } catch (error) {
+      console.error("Failed to sync classrooms:", error);
+    }
+  }
+
   /**
    * Fetches room data and initiates card rendering.
    */
@@ -344,4 +359,12 @@ export function mountDashboard(
   }
 
   initializeCards();
+
+  const syncIntervalId = window.setInterval(() => {
+    if (!wrap.isConnected) {
+      window.clearInterval(syncIntervalId);
+      return;
+    }
+    syncRooms();
+  }, 15000);
 }
