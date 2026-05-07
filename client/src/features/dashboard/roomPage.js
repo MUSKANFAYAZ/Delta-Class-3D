@@ -84,6 +84,7 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
       try {
         const { VoiceSystem } = await import("../../../classroom/VoiceSystem.js");
         voiceSystem = new VoiceSystem(window.activeClassroomSocket, window.activeClassroomSocket.id, role);
+        window.activeVoiceSystem = voiceSystem;
         
         // Initialize local stream
         const micAvailable = await voiceSystem.initLocalStream();
@@ -248,6 +249,7 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
       try {
         voiceSystem.destroy();
         voiceSystem = null;
+        window.activeVoiceSystem = null;
         console.log("Voice System cleaned up");
       } catch (error) {
         console.error("Error cleaning up Voice System:", error);

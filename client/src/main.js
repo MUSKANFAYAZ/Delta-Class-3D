@@ -137,6 +137,7 @@ function cleanupActiveClassroomConnection() {
       activeVoiceSystem.destroy();
     } catch(e) { console.error(e); }
     activeVoiceSystem = null;
+    window.activeVoiceSystem = null;
   }
 
   if (activeClassroomLoader) {
@@ -291,6 +292,8 @@ function removeSavedRoom(roomCode) {
 async function resolveExistingRooms() {
   const rooms = readSavedRooms();
   if (!rooms.length) return [];
+  const viewerRole = localStorage.getItem("delta-user-role") || "student";
+  let endedRoomsRemoved = false;
 
   const checks = await Promise.all(
     rooms.map(async (room) => {
@@ -303,13 +306,19 @@ async function resolveExistingRooms() {
         }
 
         if (data?.exists) {
+          if (viewerRole !== "teacher" && !room.host && data?.teacherPresent === false) {
+            endedRoomsRemoved = true;
+            return null;
+          }
+
           return {
             ...room,
             code,
-            canDelete: Boolean(data?.canDelete),
+            canDelete: viewerRole === "teacher" && Boolean(data?.canDelete),
             host: Boolean(data?.canDelete) || Boolean(room.host),
             subject: data?.subject ?? room.subject ?? "",
             timing: data?.timing ?? room.timing ?? "",
+            teacherPresent: Boolean(data?.teacherPresent),
           };
         }
 
@@ -323,6 +332,9 @@ async function resolveExistingRooms() {
   );
 
   const valid = checks.filter(Boolean);
+  if (endedRoomsRemoved) {
+    localStorage.setItem("delta-dashboard-notice", "A classroom session has ended and was removed from your dashboard.");
+  }
   localStorage.setItem("delta-my-rooms", JSON.stringify(valid));
   return valid;
 }
@@ -439,6 +451,7 @@ async function renderRoute() {
           try {
             const { VoiceSystem } = await import("../classroom/VoiceSystem.js");
             activeVoiceSystem = new VoiceSystem(window.activeClassroomSocket, window.activeClassroomSocket.id, roomRole);
+            window.activeVoiceSystem = activeVoiceSystem;
             await activeVoiceSystem.initLocalStream();
 
             if (page.muteButton) {
@@ -535,6 +548,9 @@ async function renderRoute() {
         if (!data?.exists) {
           return { ok: false, message: "Classroom code not found." };
         }
+        if (data?.teacherPresent === false) {
+          return { ok: false, message: "Teacher has not joined this classroom yet." };
+        }
         rememberRoom({ code: room, host: false, at: Date.now() });
         localStorage.setItem("delta-active-room", room);
         navigate(`/dashboard?role=${role}`);
@@ -603,6 +619,7 @@ async function renderRoute() {
       const { socket } = await startSocketClassroom({ roomCode, role: roomRole });
       activeClassroomSocket = socket;
       window.activeClassroomSocket = socket;
+      window.activeVoiceSystem = activeVoiceSystem;
       localStorage.setItem("delta-active-room", roomCode);
 
     } catch (e) {

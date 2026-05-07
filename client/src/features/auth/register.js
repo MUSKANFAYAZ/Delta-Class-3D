@@ -15,7 +15,56 @@ function el(tag, attrs = {}, children = []) {
 }
 
 function normalizePhone(raw) {
-  return String(raw || "").replace(/\s+/g, "");
+  const value = String(raw || "").replace(/\s+/g, "");
+  if (!value) return "+91";
+  if (value.startsWith("+")) return value;
+  if (/^\d{10}$/.test(value)) return `+91${value}`;
+  return value;
+}
+
+function normalizeCountryCode(raw) {
+  const cleaned = String(raw || "")
+    .trim()
+    .replace(/[^\d+]/g, "");
+
+  if (!cleaned) return "+91";
+  if (cleaned.startsWith("+")) return `+${cleaned.slice(1).replace(/\D/g, "").slice(0, 3)}`;
+  return `+${cleaned.replace(/\D/g, "").slice(0, 3)}`;
+}
+
+function createPhoneFields(defaultCountryCode = "+91") {
+  const countryCode = el("input", {
+    class: "dc-input",
+    placeholder: "+91",
+    inputmode: "tel",
+    autocomplete: "tel-country-code",
+    value: defaultCountryCode,
+  });
+
+  const phoneNumber = el("input", {
+    class: "dc-input",
+    placeholder: "1234567890",
+    inputmode: "tel",
+    autocomplete: "tel",
+  });
+
+  countryCode.addEventListener("focus", () => {
+    if (countryCode.value === "+91") {
+      window.requestAnimationFrame(() => {
+        countryCode.setSelectionRange(countryCode.value.length, countryCode.value.length);
+      });
+    }
+  });
+
+  return {
+    countryCode,
+    phoneNumber,
+    getValue() {
+      const code = normalizeCountryCode(countryCode.value);
+      const number = String(phoneNumber.value || "").replace(/\D/g, "").slice(0, 10);
+      return `${code}${number}`;
+    },
+  };
 }
 
 function isValidPhoneWithCode(phone) {
@@ -32,7 +81,7 @@ export function mountRegister(root, { api, onDone, onGoLogin, role = "student", 
   const status = el("p", { class: "dc-muted dc-small", text: "" });
   const name = el("input", { class: "dc-input", placeholder: "Full name", autocomplete: "name" });
   const studentClass = el("input", { class: "dc-input", placeholder: "Class (eg. 10-A)" });
-  const phone = el("input", { class: "dc-input", placeholder: "Phone number", inputmode: "tel", autocomplete: "tel" });
+  const phoneFields = createPhoneFields();
   const password = el("input", { class: "dc-input", type: "password", placeholder: "Password", autocomplete: "new-password" });
   const confirmPassword = el("input", {
     class: "dc-input",
@@ -42,13 +91,25 @@ export function mountRegister(root, { api, onDone, onGoLogin, role = "student", 
   });
 
   const idValue = el("strong", { text: "" });
+  const copyIdButton = el("button", { type: "button", class: "dc-btn dc-btn-secondary", text: "Copy code" });
+  copyIdButton.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(idValue.textContent || "");
+      status.textContent = "Code copied to clipboard.";
+    } catch {
+      status.textContent = "Could not copy automatically. Please copy it manually.";
+    }
+  });
   const idWrap = el("div", { class: "dc-stat", hidden: "true" }, [
     el("span", { class: "dc-stat-label", text: "Your unique ID" }),
     idValue,
+    copyIdButton,
   ]);
 
   let currentRole = role === "teacher" ? "teacher" : "student";
   let classFieldWrap = null;
+  let registerButton = null;
+  let registerInFlight = false;
 
 
 
@@ -56,7 +117,7 @@ export function mountRegister(root, { api, onDone, onGoLogin, role = "student", 
     status.textContent = "";
     const nm = String(name.value || "").trim();
     const cls = String(studentClass.value || "").trim();
-    const p = normalizePhone(phone.value);
+    const p = phoneFields.getValue();
     const pw = String(password.value || "");
     const cpw = String(confirmPassword.value || "");
 
@@ -85,6 +146,13 @@ export function mountRegister(root, { api, onDone, onGoLogin, role = "student", 
       return;
     }
 
+    if (registerInFlight) return;
+    registerInFlight = true;
+    if (registerButton) {
+      registerButton.disabled = true;
+      registerButton.textContent = "Registering...";
+    }
+
     const userId = generateId();
     try {
       const data = await api("/register", {
@@ -103,10 +171,15 @@ export function mountRegister(root, { api, onDone, onGoLogin, role = "student", 
       if (data?.user?.role) localStorage.setItem("delta-user-role", data.user.role);
       idValue.textContent = userId;
       idWrap.hidden = false;
-      status.textContent = "Signup successful. Please login.";
-      setTimeout(() => onGoLogin?.(currentRole), 500);
+      status.textContent = "Signup successful. Copy your code, then login.";
     } catch (e) {
       status.textContent = e?.message || "Registration failed.";
+    } finally {
+      registerInFlight = false;
+      if (registerButton) {
+        registerButton.disabled = false;
+        registerButton.textContent = "Register";
+      }
     }
   }
 
@@ -166,10 +239,16 @@ export function mountRegister(root, { api, onDone, onGoLogin, role = "student", 
       })(),
 
       el("label", { class: "dc-field-label", for: "dc-reg-phone", text: "Phone" }),
-      (() => {
-        phone.id = "dc-reg-phone";
-        return phone;
-      })(),
+      el("div", { class: "dc-phone-row" }, [
+        (() => {
+          phoneFields.countryCode.id = "dc-reg-country-code";
+          return phoneFields.countryCode;
+        })(),
+        (() => {
+          phoneFields.phoneNumber.id = "dc-reg-phone";
+          return phoneFields.phoneNumber;
+        })(),
+      ]),
 
 
       el("label", { class: "dc-field-label", for: "dc-reg-pass", text: "Password" }),
@@ -187,7 +266,10 @@ export function mountRegister(root, { api, onDone, onGoLogin, role = "student", 
       status,
       el("div", { class: "dc-auth-actions dc-auth-actions-row" }, [
         el("button", { type: "button", class: "dc-btn dc-btn-ghost", text: "Login", onclick: () => onGoLogin?.(currentRole) }),
-        el("button", { type: "button", class: "dc-btn dc-btn-primary", text: "Register", onclick: submit }),
+        (() => {
+          registerButton = el("button", { type: "button", class: "dc-btn dc-btn-primary", text: "Register", onclick: submit });
+          return registerButton;
+        })(),
       ]),
       el("div", { class: "dc-stat-grid" }, [idWrap]),
     ] : [renderChooser()]),

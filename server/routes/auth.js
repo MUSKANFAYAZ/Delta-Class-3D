@@ -6,7 +6,11 @@ const { signAccessToken, authMiddleware } = require("../lib/auth");
 const router = express.Router();
 
 function normalizePhone(raw) {
-  return String(raw || "").replace(/\s+/g, "");
+  const value = String(raw || "").replace(/\s+/g, "");
+  if (!value) return "+91";
+  if (value.startsWith("+")) return value;
+  if (/^\d{10}$/.test(value)) return `+91${value}`;
+  return value;
 }
 
 function isValidPhoneWithCode(phone) {

@@ -68,6 +68,7 @@ export function mountDashboard(
   root.innerHTML = "";
   const userName = localStorage.getItem("delta-user-display") || "";
   const isLoggedIn = Boolean(localStorage.getItem("delta-access-token"));
+  const viewerRole = localStorage.getItem("delta-user-role") || "student";
 
   const wrap = document.createElement("div");
   wrap.className = "dc-root";
@@ -92,6 +93,7 @@ export function mountDashboard(
         <p class="dc-hero-chip">Smart, low-bandwidth classroom launcher</p>
         <h2 class="dc-hero-heading">Create, share code, and enter from your room cards.</h2>
         <p class="dc-hero-copy">Classroom access is restricted to logged-in users only.</p>
+        <p class="dc-muted dc-small" id="dc-dashboard-notice" hidden></p>
         <p class="dc-hero-quote" id="dc-hero-quote"></p>
       </section>
 
@@ -107,6 +109,17 @@ export function mountDashboard(
   `;
 
   root.appendChild(wrap);
+
+  const dashboardNotice = wrap.querySelector("#dc-dashboard-notice");
+  const pendingNotice = localStorage.getItem("delta-dashboard-notice") || "";
+  if (dashboardNotice && pendingNotice) {
+    dashboardNotice.textContent = pendingNotice;
+    dashboardNotice.hidden = false;
+    localStorage.removeItem("delta-dashboard-notice");
+    window.setTimeout(() => {
+      if (dashboardNotice.isConnected) dashboardNotice.hidden = true;
+    }, 7000);
+  }
 
   // --- USER MENU LOGIC (Dropdown for Profile/Logout) ---
   const loginBtn = wrap.querySelector("#dc-login");
@@ -179,7 +192,7 @@ export function mountDashboard(
     noCards.hidden = true;
 
     rooms.forEach((room) => {
-      const canDelete = Boolean(room.canDelete);
+      const canDelete = viewerRole === "teacher" && Boolean(room.canDelete);
       const host = Boolean(room.host || room.canDelete);
       const card = document.createElement("div");
       card.className = "dc-room-card";

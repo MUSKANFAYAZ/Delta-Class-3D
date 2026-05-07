@@ -14,6 +14,29 @@ export class VoiceSystem {
     this.setupSocketListeners();
   }
 
+  setMuted(nextMuted) {
+    this.isMuted = Boolean(nextMuted);
+    if (this.localStream) {
+      this.localStream.getAudioTracks().forEach((track) => {
+        track.enabled = !this.isMuted;
+      });
+    }
+    return this.isMuted;
+  }
+
+  ensureUnmuted() {
+    return this.setMuted(false);
+  }
+
+  refreshRemoteAudioElements() {
+    document.querySelectorAll(".dc-remote-audio").forEach((audio) => {
+      audio.muted = this.isDeafened;
+      audio.autoplay = true;
+      audio.playsInline = true;
+      audio.play?.().catch(() => {});
+    });
+  }
+
   async initLocalStream() {
     try {
       this.localStream = await navigator.mediaDevices.getUserMedia({
@@ -30,6 +53,7 @@ export class VoiceSystem {
       });
       // Start muted
       this.localStream.getAudioTracks().forEach(t => t.enabled = !this.isMuted);
+      this.refreshRemoteAudioElements();
       return true;
     } catch (err) {
       console.error("Local mic not available:", err);
@@ -38,11 +62,7 @@ export class VoiceSystem {
   }
 
   toggleMute() {
-    this.isMuted = !this.isMuted;
-    if (this.localStream) {
-      this.localStream.getAudioTracks().forEach(t => t.enabled = !this.isMuted);
-    }
-    return this.isMuted;
+    return this.setMuted(!this.isMuted);
   }
 
   toggleDeafen() {
@@ -122,11 +142,13 @@ export class VoiceSystem {
         audioEntry = document.createElement("audio");
         audioEntry.id = `audio-${userId}`;
         audioEntry.autoplay = true;
+        audioEntry.playsInline = true;
         audioEntry.className = "dc-remote-audio";
         if (this.isDeafened) audioEntry.muted = true;
         document.body.appendChild(audioEntry);
       }
       audioEntry.srcObject = stream;
+      audioEntry.play?.().catch(() => {});
     };
 
     pc.onconnectionstatechange = () => {

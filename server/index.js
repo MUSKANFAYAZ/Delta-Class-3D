@@ -96,6 +96,19 @@ async function getOrCreateClassroom(code, additionalData = {}) {
   return classroom;
 }
 
+function createActiveSessionFromClassroom(classroom) {
+  return {
+    studentAssignments: new Map(),
+    studentPositions: new Map(),
+    teacherPositions: new Map(),
+    teacherSocketIds: new Set(),
+    teacherPresent: false,
+    blackboardStrokes: Array.isArray(classroom?.blackboardStrokes)
+      ? [...classroom.blackboardStrokes]
+      : [],
+  };
+}
+
 function getUserFromAuthHeader(req) {
   const header = String(req.headers.authorization || "");
   const match = header.match(/^Bearer\s+(.+)$/i);
@@ -219,6 +232,7 @@ app.get("/auth/classrooms/:code", async (req, res) => {
       capacity: classroom?.capacity,
       info: classroom?.info,
       canDelete,
+      teacherPresent: Boolean(activeClassrooms.get(code)?.teacherPresent),
       participants: classroom
         ? (classroom.studentAssignments?.size || 0) + (classroom.teacherPositions?.size || 0)
         : 0,
@@ -268,14 +282,7 @@ io.on("connection", async (socket) => {
 
     // Get or create an in-memory cache for this session
     if (!activeClassrooms.has(roomCode)) {
-      activeClassrooms.set(roomCode, {
-        studentAssignments: new Map(),
-        studentPositions: new Map(),
-        teacherPositions: new Map(),
-        blackboardStrokes: Array.isArray(classroom?.blackboardStrokes)
-          ? [...classroom.blackboardStrokes]
-          : [],
-      });
+      activeClassrooms.set(roomCode, createActiveSessionFromClassroom(classroom));
     }
 
     const activeSession = activeClassrooms.get(roomCode);
@@ -283,6 +290,17 @@ io.on("connection", async (socket) => {
     socket.join(roomCode);
 
     console.log(`Socket connected: ${socket.id} (${role}) room=${roomCode}`);
+
+    if (role === "teacher") {
+      activeSession.teacherSocketIds.add(socket.id);
+      activeSession.teacherPresent = true;
+    }
+
+    if (role === "student" && !activeSession.teacherPresent) {
+      socket.emit("room-error", { message: "Teacher has not joined this classroom yet." });
+      socket.disconnect(true);
+      return;
+    }
 
     if (role === "student") {
       const slotIndex = getNextAvailableSlot(activeSession);
@@ -398,6 +416,11 @@ io.on("connection", async (socket) => {
       activeSession.studentAssignments.delete(socket.id);
       activeSession.studentPositions.delete(socket.id);
       activeSession.teacherPositions.delete(socket.id);
+      activeSession.teacherSocketIds.delete(socket.id);
+
+      if (role === "teacher" && activeSession.teacherSocketIds.size === 0) {
+        activeSession.teacherPresent = false;
+      }
 
       if (
         activeSession.studentAssignments.size === 0
@@ -445,11 +468,12 @@ app.delete("/auth/classrooms/:code", authMiddleware, async (req, res) => {
     }
 
     const room = activeClassrooms.get(code);
-    if (!room) {
+    const classroom = await Classroom.findOne({ code });
+    if (!room && !classroom) {
       return res.status(404).json({ ok: false, message: "Room not found" });
     }
 
-    const ownerId = getRoomOwnerId(room);
+    const ownerId = getRoomOwnerId(classroom || room);
     const requesterId = String(req.user?.sub || "");
     if (!ownerId || ownerId !== requesterId) {
       return res.status(403).json({
@@ -458,6 +482,13 @@ app.delete("/auth/classrooms/:code", authMiddleware, async (req, res) => {
       });
     }
 
+    await Classroom.deleteOne({ code }).catch(() => {});
+    if (room) {
+      io.to(code).emit("room-error", { message: "This classroom has been deleted." });
+      for (const socketId of io.sockets.adapter.rooms.get(code) || []) {
+        io.sockets.sockets.get(socketId)?.disconnect(true);
+      }
+    }
     activeClassrooms.delete(code);
     return res.json({ ok: true, message: "Classroom deleted" });
   } catch (error) {

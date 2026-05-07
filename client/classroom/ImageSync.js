@@ -90,11 +90,17 @@ export function setupImageSync({
       setTimeout(updateMicBtnState, 0);
 
       micBtn.onclick = () => {
-        const mainMuteBtn = document.getElementById("mute-button");
-        if (mainMuteBtn) {
-          mainMuteBtn.click();
-          updateMicBtnState();
+        const voiceSystem = window.activeVoiceSystem;
+        if (voiceSystem?.ensureUnmuted) {
+          voiceSystem.ensureUnmuted();
+          voiceSystem.refreshRemoteAudioElements?.();
+        } else {
+          const mainMuteBtn = document.getElementById("mute-button");
+          if (mainMuteBtn) {
+            mainMuteBtn.click();
+          }
         }
+        updateMicBtnState();
       };
 
       const exitBtn = document.createElement("button");
@@ -249,9 +255,15 @@ export function setupImageSync({
       currentSlideIndex = 0;
 
       // Auto-unmute mic when sharing
-      const mainMuteBtn = document.getElementById("mute-button");
-      if (mainMuteBtn && mainMuteBtn.title === "Unmute Mic") {
-        mainMuteBtn.click(); // trigger unmute
+      const voiceSystem = window.activeVoiceSystem;
+      if (voiceSystem?.ensureUnmuted) {
+        voiceSystem.ensureUnmuted();
+        voiceSystem.refreshRemoteAudioElements?.();
+      } else {
+        const mainMuteBtn = document.getElementById("mute-button");
+        if (mainMuteBtn && mainMuteBtn.title === "Unmute Mic") {
+          mainMuteBtn.click(); // trigger unmute
+        }
       }
 
       ensurePresentationOverlay().style.display = "flex";
@@ -259,6 +271,7 @@ export function setupImageSync({
 
       // Update mic button on overlay
       const micBtn = document.getElementById("presentation-mic-btn");
+      const mainMuteBtn = document.getElementById("mute-button");
       if (micBtn && mainMuteBtn) {
         const isNowMuted = mainMuteBtn.title === "Unmute Mic";
         micBtn.textContent = isNowMuted ? "Unmute Mic" : "Mute Mic";

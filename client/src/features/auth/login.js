@@ -15,7 +15,56 @@ function el(tag, attrs = {}, children = []) {
 }
 
 function normalizePhone(raw) {
-  return String(raw || "").replace(/\s+/g, "");
+  const value = String(raw || "").replace(/\s+/g, "");
+  if (!value) return "+91";
+  if (value.startsWith("+")) return value;
+  if (/^\d{10}$/.test(value)) return `+91${value}`;
+  return value;
+}
+
+function normalizeCountryCode(raw) {
+  const cleaned = String(raw || "")
+    .trim()
+    .replace(/[^\d+]/g, "");
+
+  if (!cleaned) return "+91";
+  if (cleaned.startsWith("+")) return `+${cleaned.slice(1).replace(/\D/g, "").slice(0, 3)}`;
+  return `+${cleaned.replace(/\D/g, "").slice(0, 3)}`;
+}
+
+function createPhoneFields(defaultCountryCode = "+91") {
+  const countryCode = el("input", {
+    class: "dc-input",
+    placeholder: "+91",
+    inputmode: "tel",
+    autocomplete: "tel-country-code",
+    value: defaultCountryCode,
+  });
+
+  const phoneNumber = el("input", {
+    class: "dc-input",
+    placeholder: "1234567890",
+    inputmode: "tel",
+    autocomplete: "tel",
+  });
+
+  countryCode.addEventListener("focus", () => {
+    if (countryCode.value === "+91") {
+      window.requestAnimationFrame(() => {
+        countryCode.setSelectionRange(countryCode.value.length, countryCode.value.length);
+      });
+    }
+  });
+
+  return {
+    countryCode,
+    phoneNumber,
+    getValue() {
+      const code = normalizeCountryCode(countryCode.value);
+      const number = String(phoneNumber.value || "").replace(/\D/g, "").slice(0, 10);
+      return `${code}${number}`;
+    },
+  };
 }
 
 function isValidPhoneWithCode(phone) {
@@ -28,7 +77,7 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
   let currentRole = role === "teacher" ? "teacher" : role === "student" ? "student" : "";
 
   const status = el("p", { class: "dc-muted dc-small", text: "" });
-  const phone = el("input", { class: "dc-input", placeholder: "Phone number", inputmode: "tel", autocomplete: "tel" });
+  const phoneFields = createPhoneFields();
   const password = el("input", {
     class: "dc-input",
     type: "password",
@@ -47,7 +96,7 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
 
   async function loginWithPassword() {
     status.textContent = "";
-    const p = normalizePhone(phone.value);
+    const p = phoneFields.getValue();
     const pw = String(password.value || "");
     if (!currentRole) {
       status.textContent = "Please choose role first.";
@@ -76,7 +125,7 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
 
   async function resetPassword() {
     status.textContent = "";
-    const p = normalizePhone(phone.value);
+    const p = phoneFields.getValue();
     const pw = String(newPassword.value || "");
     const cpw = String(confirmPassword.value || "");
     if (!p || !pw || !cpw) {
@@ -157,10 +206,16 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
         }),
       ]),
       el("label", { class: "dc-field-label", for: "dc-login-phone", text: "Phone" }),
-      (() => {
-        phone.id = "dc-login-phone";
-        return phone;
-      })(),
+      el("div", { class: "dc-phone-row" }, [
+        (() => {
+          phoneFields.countryCode.id = "dc-login-country-code";
+          return phoneFields.countryCode;
+        })(),
+        (() => {
+          phoneFields.phoneNumber.id = "dc-login-phone";
+          return phoneFields.phoneNumber;
+        })(),
+      ]),
       el("label", { class: "dc-field-label", for: "dc-login-pass", text: "Password" }),
       (() => {
         password.id = "dc-login-pass";
@@ -183,10 +238,16 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
       el("h2", { class: "dc-login-title", text: "Reset password" }),
       el("p", { class: "dc-muted dc-small", text: "Set a new password." }),
       el("label", { class: "dc-field-label", for: "dc-reset-phone", text: "Phone" }),
-      (() => {
-        phone.id = "dc-reset-phone";
-        return phone;
-      })(),
+      el("div", { class: "dc-phone-row" }, [
+        (() => {
+          phoneFields.countryCode.id = "dc-reset-country-code";
+          return phoneFields.countryCode;
+        })(),
+        (() => {
+          phoneFields.phoneNumber.id = "dc-reset-phone";
+          return phoneFields.phoneNumber;
+        })(),
+      ]),
       el("label", { class: "dc-field-label", for: "dc-reset-new", text: "New password" }),
       (() => {
         newPassword.id = "dc-reset-new";
