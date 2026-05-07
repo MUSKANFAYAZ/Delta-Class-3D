@@ -328,11 +328,58 @@ function removeSavedRoom(roomCode) {
   localStorage.setItem("delta-my-rooms", JSON.stringify(nextRooms));
 }
 
+async function fetchSharedClassrooms() {
+  try {
+    const data = await api("/classrooms");
+    return Array.isArray(data?.classrooms) ? data.classrooms : [];
+  } catch {
+    return [];
+  }
+}
+
 async function resolveExistingRooms() {
-  const rooms = readSavedRooms();
-  if (!rooms.length) return [];
   const viewerRole = localStorage.getItem("delta-user-role") || "student";
   let endedRoomsRemoved = false;
+
+  const savedRooms = readSavedRooms();
+  const sharedRooms = await fetchSharedClassrooms();
+  const roomMap = new Map();
+
+  for (const room of sharedRooms) {
+    if (!room?.code) continue;
+    roomMap.set(String(room.code).trim().toLowerCase(), {
+      code: String(room.code).trim().toLowerCase(),
+      subject: room.subject || "",
+      timing: room.timing || "",
+      info: room.info || "",
+      capacity: room.capacity || "",
+      canDelete: Boolean(room.canDelete) && viewerRole === "teacher",
+      host: viewerRole === "teacher" && Boolean(room.canDelete),
+      teacherPresent: Boolean(room.teacherPresent),
+      at: room.createdAt || Date.now(),
+    });
+  }
+
+  for (const room of savedRooms) {
+    const code = String(room.code || "").trim().toLowerCase();
+    if (!code) continue;
+    const existing = roomMap.get(code) || { code };
+    roomMap.set(code, {
+      ...existing,
+      ...room,
+      code,
+      canDelete: viewerRole === "teacher" ? Boolean(existing.canDelete || room.canDelete || room.host) : Boolean(room.canDelete),
+      host: viewerRole === "teacher" ? Boolean(existing.canDelete || room.host) : Boolean(room.host),
+      teacherPresent: Boolean(existing.teacherPresent ?? room.teacherPresent),
+      subject: existing.subject ?? room.subject ?? "",
+      timing: existing.timing ?? room.timing ?? "",
+      info: existing.info ?? room.info ?? "",
+      capacity: existing.capacity ?? room.capacity ?? "",
+    });
+  }
+
+  const rooms = [...roomMap.values()];
+  if (!rooms.length) return [];
 
   const checks = await Promise.all(
     rooms.map(async (room) => {
@@ -345,11 +392,6 @@ async function resolveExistingRooms() {
         }
 
         if (data?.exists) {
-          if (viewerRole !== "teacher" && !room.host && data?.teacherPresent === false) {
-            endedRoomsRemoved = true;
-            return null;
-          }
-
           return {
             ...room,
             code,
@@ -357,7 +399,10 @@ async function resolveExistingRooms() {
             host: Boolean(data?.canDelete) || Boolean(room.host),
             subject: data?.subject ?? room.subject ?? "",
             timing: data?.timing ?? room.timing ?? "",
+            info: data?.info ?? room.info ?? "",
+            capacity: data?.capacity ?? room.capacity ?? "",
             teacherPresent: Boolean(data?.teacherPresent),
+            at: data?.createdAt ?? room.at,
           };
         }
 

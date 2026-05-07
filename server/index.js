@@ -210,6 +210,36 @@ app.post("/auth/classrooms", authMiddleware, async (req, res) => {
   }
 });
 
+app.get("/auth/classrooms", authMiddleware, async (req, res) => {
+  try {
+    const classrooms = await Classroom.find({})
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean();
+
+    return res.json({
+      classrooms: classrooms.map((classroom) => {
+        const code = String(classroom.code || "").toLowerCase();
+        const activeSession = activeClassrooms.get(code);
+        return {
+          code,
+          subject: classroom.subject || "",
+          timing: classroom.timing || "",
+          capacity: classroom.capacity || "",
+          info: classroom.info || "",
+          createdAt: classroom.createdAt || classroom.created_at || null,
+          teacherPresent: Boolean(activeSession?.teacherPresent),
+          participants: (classroom.studentAssignments?.size || 0) + (classroom.teacherPositions?.size || 0),
+          canDelete: String(classroom.createdBy || "") === String(req.user?.sub || ""),
+        };
+      }),
+    });
+  } catch (error) {
+    console.error("Error fetching classrooms:", error);
+    return res.status(500).json({ message: "Error fetching classrooms" });
+  }
+});
+
 app.get("/auth/classrooms/:code", async (req, res) => {
   try {
     const code = normalizeRoomCode(req.params.code);
