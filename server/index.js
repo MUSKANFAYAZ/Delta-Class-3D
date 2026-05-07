@@ -496,13 +496,20 @@ io.on("connection", async (socket) => {
 app.delete("/auth/classrooms/:code", authMiddleware, async (req, res) => {
   try {
     const code = normalizeRoomCode(req.params.code);
+    console.log(`[DELETE] Request to delete classroom: ${code}`);
+    console.log(`[DELETE] MongoDB database: ${mongoose.connection.name}, connected: ${mongoose.connection.readyState === 1}`);
+    
     if (!isValidRoomCode(code)) {
+      console.warn(`[DELETE] Invalid room code format: ${code}`);
       return res.status(400).json({ ok: false, message: "Invalid room code format" });
     }
 
     const room = activeClassrooms.get(code);
     const classroom = await Classroom.findOne({ code });
+    console.log(`[DELETE] Room in memory: ${!!room}, Classroom in DB: ${!!classroom}`);
+    
     if (!room && !classroom) {
+      console.warn(`[DELETE] Room not found: ${code}`);
       return res.status(404).json({ ok: false, message: "Room not found" });
     }
 
@@ -510,17 +517,25 @@ app.delete("/auth/classrooms/:code", authMiddleware, async (req, res) => {
     const requesterId = String(req.user?.sub || "");
     const isTeacher = String(req.user?.role || "") === "teacher";
     const hasCreator = Boolean(classroom?.createdBy);
+    console.log(`[DELETE] Authorization check - ownerId: ${ownerId}, requesterId: ${requesterId}, isTeacher: ${isTeacher}, hasCreator: ${hasCreator}`);
+    
     if ((!ownerId || ownerId !== requesterId) && !(isTeacher && !hasCreator)) {
+      console.warn(`[DELETE] Authorization failed for user ${requesterId}`);
       return res.status(403).json({
         ok: false,
         message: "Only the classroom creator can delete this class",
       });
     }
 
+    console.log(`[DELETE] Attempting to delete classroom with code: ${code}`);
     const deleteResult = await Classroom.deleteMany({ code });
+    console.log(`[DELETE] Delete result: deletedCount = ${deleteResult?.deletedCount}`);
+    
     if (!deleteResult || deleteResult.deletedCount < 1) {
+      console.warn(`[DELETE] No documents deleted for code: ${code}`);
       return res.status(404).json({ ok: false, message: "Room not found" });
     }
+    
     if (room) {
       io.to(code).emit("room-error", { message: "This classroom has been deleted." });
       for (const socketId of io.sockets.adapter.rooms.get(code) || []) {
@@ -528,6 +543,8 @@ app.delete("/auth/classrooms/:code", authMiddleware, async (req, res) => {
       }
     }
     activeClassrooms.delete(code);
+    console.log(`[DELETE] Successfully deleted classroom: ${code}`);
+    
     return res.json({
       ok: true,
       message: "Classroom deleted",
