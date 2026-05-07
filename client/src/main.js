@@ -138,6 +138,19 @@ async function startSocketClassroom({ role, roomCode }) {
       const message = String(payload?.message || "");
       if (/deleted|has been deleted|room does not exist/i.test(message)) {
         handleRoomDeleted(message);
+        return;
+      }
+
+      if (/session is not started|wait for the teacher|teacher has not joined/i.test(message)) {
+        try {
+          socket.disconnect();
+        } catch {
+          // ignore disconnect issues
+        }
+        cleanupActiveClassroomConnection();
+        localStorage.removeItem("delta-active-room");
+        alert(message || "Class session is not started yet. Please wait for the teacher to enter the classroom.");
+        navigate(`/join?role=${role}`);
       }
     };
 
@@ -575,7 +588,7 @@ async function renderRoute() {
           return { ok: false, message: "Classroom code not found." };
         }
         if (data?.teacherPresent === false) {
-          return { ok: false, message: "Teacher has not joined this classroom yet." };
+          return { ok: false, message: "Class session is not started yet. Please wait for the teacher to enter the classroom." };
         }
         rememberRoom({ code: room, host: false, at: Date.now() });
         localStorage.setItem("delta-active-room", room);
