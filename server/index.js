@@ -512,8 +512,9 @@ app.delete("/auth/classrooms/:code", authMiddleware, async (req, res) => {
       });
     }
 
-    if (classroom) {
-      await Classroom.deleteOne({ _id: classroom._id });
+    const deleteResult = await Classroom.deleteMany({ code });
+    if (!deleteResult.deletedCount) {
+      return res.status(404).json({ ok: false, message: "Room not found" });
     }
     if (room) {
       io.to(code).emit("room-error", { message: "This classroom has been deleted." });

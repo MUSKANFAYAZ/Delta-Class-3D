@@ -192,7 +192,7 @@ export function mountDashboard(
     noCards.hidden = true;
 
     rooms.forEach((room) => {
-      const canDelete = viewerRole === "teacher" && Boolean(room.canDelete);
+      const canDelete = Boolean(room.canDelete);
       const host = Boolean(room.host || room.canDelete);
       const card = document.createElement("div");
       card.className = "dc-room-card";
