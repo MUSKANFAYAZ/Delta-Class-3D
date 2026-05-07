@@ -1,4 +1,4 @@
-const CACHE_VERSION = "delta-class3d-v1";
+const CACHE_VERSION = "delta-class3d-v2";
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const CORE_ASSETS = ["/", "/index.html"];
 
@@ -29,6 +29,11 @@ self.addEventListener("fetch", (event) => {
 
   const requestUrl = new URL(request.url);
   const isSameOrigin = requestUrl.origin === self.location.origin;
+
+  if (isSameOrigin && requestUrl.pathname.startsWith("/auth/")) {
+    event.respondWith(fetch(request));
+    return;
+  }
 
   if (request.mode === "navigate") {
     event.respondWith(networkFirst(request));
