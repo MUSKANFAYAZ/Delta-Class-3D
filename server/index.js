@@ -513,7 +513,7 @@ app.delete("/auth/classrooms/:code", authMiddleware, async (req, res) => {
     }
 
     const deleteResult = await Classroom.deleteMany({ code });
-    if (!deleteResult.deletedCount) {
+    if (!deleteResult || deleteResult.deletedCount < 1) {
       return res.status(404).json({ ok: false, message: "Room not found" });
     }
     if (room) {
@@ -523,7 +523,11 @@ app.delete("/auth/classrooms/:code", authMiddleware, async (req, res) => {
       }
     }
     activeClassrooms.delete(code);
-    return res.json({ ok: true, message: "Classroom deleted" });
+    return res.json({
+      ok: true,
+      message: "Classroom deleted",
+      deletedCount: deleteResult.deletedCount,
+    });
   } catch (error) {
     console.error("Error deleting classroom:", error);
     return res.status(500).json({ ok: false, message: "Error deleting classroom" });
