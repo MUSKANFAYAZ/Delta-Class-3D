@@ -297,7 +297,7 @@ io.on("connection", async (socket) => {
     }
 
     if (role === "student" && !activeSession.teacherPresent) {
-      socket.emit("room-error", { message: "Teacher has not joined this classroom yet." });
+      socket.emit("room-error", { message: "Class session is not started yet. Please wait for the teacher to enter the classroom." });
       socket.disconnect(true);
       return;
     }
