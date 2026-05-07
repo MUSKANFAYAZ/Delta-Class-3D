@@ -512,7 +512,9 @@ app.delete("/auth/classrooms/:code", authMiddleware, async (req, res) => {
       });
     }
 
-    await Classroom.deleteOne({ code }).catch(() => {});
+    if (classroom) {
+      await Classroom.deleteOne({ _id: classroom._id });
+    }
     if (room) {
       io.to(code).emit("room-error", { message: "This classroom has been deleted." });
       for (const socketId of io.sockets.adapter.rooms.get(code) || []) {
