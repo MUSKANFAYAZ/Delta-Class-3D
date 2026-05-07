@@ -221,6 +221,9 @@ app.get("/auth/classrooms", authMiddleware, async (req, res) => {
       classrooms: classrooms.map((classroom) => {
         const code = String(classroom.code || "").toLowerCase();
         const activeSession = activeClassrooms.get(code);
+        const requesterId = String(req.user?.sub || "");
+        const isTeacher = String(req.user?.role || "") === "teacher";
+        const hasCreator = Boolean(classroom.createdBy);
         return {
           code,
           subject: classroom.subject || "",
@@ -230,7 +233,7 @@ app.get("/auth/classrooms", authMiddleware, async (req, res) => {
           createdAt: classroom.createdAt || classroom.created_at || null,
           teacherPresent: Boolean(activeSession?.teacherPresent),
           participants: (classroom.studentAssignments?.size || 0) + (classroom.teacherPositions?.size || 0),
-          canDelete: String(classroom.createdBy || "") === String(req.user?.sub || ""),
+          canDelete: (hasCreator && String(classroom.createdBy || "") === requesterId) || (!hasCreator && isTeacher),
         };
       }),
     });
@@ -505,7 +508,9 @@ app.delete("/auth/classrooms/:code", authMiddleware, async (req, res) => {
 
     const ownerId = getRoomOwnerId(classroom || room);
     const requesterId = String(req.user?.sub || "");
-    if (!ownerId || ownerId !== requesterId) {
+    const isTeacher = String(req.user?.role || "") === "teacher";
+    const hasCreator = Boolean(classroom?.createdBy);
+    if ((!ownerId || ownerId !== requesterId) && !(isTeacher && !hasCreator)) {
       return res.status(403).json({
         ok: false,
         message: "Only the classroom creator can delete this class",
@@ -551,8 +556,8 @@ server.listen(PORT, "0.0.0.0", () => {
 const MONGO_URI = process.env.MONGO_URI || process.env.MONGO_URL || process.env.DATABASE_URL;
 if (MONGO_URI) {
   mongoose
-    .connect(MONGO_URI, { dbName: process.env.MONGO_DB || undefined })
-    .then(() => console.log("✓ MongoDB connected"))
+    .connect(MONGO_URI)
+    .then(() => console.log(`✓ MongoDB connected to ${mongoose.connection.name}`))
     .catch((e) => console.error("MongoDB connection failed:", e?.message || e));
 } else {
   console.warn("MONGO_URI or MONGO_URL not set — auth storage will not work until MongoDB is configured.");
