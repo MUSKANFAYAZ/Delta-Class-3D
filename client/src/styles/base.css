@@ -523,46 +523,6 @@ body {
   font-size: 13px;
 }
 
-/* Whiteboard tools panel - mobile responsive */
-#blackboard-tools-root {
-  position: absolute;
-  right: 16px;
-  top: 84px;
-  z-index: 11;
-  max-width: calc(100vw - 32px);
-}
-
-@media (max-width: 768px) {
-  #blackboard-tools-root {
-    right: 10px;
-    top: 74px;
-    max-width: calc(100vw - 20px);
-  }
-}
-
-@media (max-width: 480px) {
-  #blackboard-tools-root {
-    right: 8px;
-    top: 70px;
-    padding: 8px !important;
-    max-width: calc(100vw - 16px);
-    font-size: 11px;
-  }
-}
-
-/* Color palette buttons - scale for mobile */
-#blackboard-tools-root button[title] {
-  min-width: 28px;
-  min-height: 28px;
-}
-
-@media (max-width: 480px) {
-  #blackboard-tools-root button[title] {
-    width: 26px !important;
-    height: 26px !important;
-  }
-}
-
 /* Icon sizing for better mobile visibility */
 .dc-icon-btn,
 .dc-room-icon-btn {

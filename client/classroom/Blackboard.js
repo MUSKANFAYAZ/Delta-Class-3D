@@ -278,8 +278,8 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
         colorButton.type = "button";
         colorButton.title = color;
         Object.assign(colorButton.style, {
-          width: "24px",
-          height: "24px",
+          width: "20px",
+          height: "20px",
           borderRadius: "999px",
           border: "2px solid rgba(15, 23, 42, 0.22)",
           background: color,
