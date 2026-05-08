@@ -21,6 +21,12 @@ const server = http.createServer(app);
 app.use(cors({ origin: "*", methods: ["GET", "POST", "PUT", "PATCH", "DELETE"] }));
 app.use(express.json({ limit: "1mb" }));
 
+// Request logging middleware
+app.use((req, res, next) => {
+  console.log(`[HTTP] ${req.method} ${req.path}`);
+  next();
+});
+
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
 app.get("/health/db", async (_req, res) => {
@@ -633,20 +639,41 @@ app.delete("/auth/classrooms/:code", authMiddleware, async (req, res) => {
 
 // Global Error Handler for Express 5+
 app.use((err, req, res, next) => {
-  console.error("Unhandled Backend Error:", err.stack || err);
+  console.error(`[ERROR] ${req.method} ${req.path}:`, err?.message || err, err?.stack);
   const status = err.status || 500;
   res.status(status).json({ 
     message: "Internal Server Error", 
-    detail: err.message || "Unknown database or execution error" 
+    detail: err.message || "Unknown database or execution error",
+    path: req.path,
+    method: req.method
   });
+});
+
+// Catch unhandled rejections
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("[UNHANDLED REJECTION]", reason);
+});
+
+process.on("uncaughtException", (error) => {
+  console.error("[UNCAUGHT EXCEPTION]", error?.message || error, error?.stack);
 });
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`✓ Server started on port ${PORT}`);
 });
 
+// Verify critical environment variables on startup
+const CRITICAL_ENV_VARS = {
+  JWT_SECRET: process.env.JWT_SECRET || "delta-class3d-dev-secret",
+  MONGO_URI: process.env.MONGO_URI,
+};
+
+console.log("[STARTUP] Critical environment variables:");
+console.log(`  JWT_SECRET: ${CRITICAL_ENV_VARS.JWT_SECRET ? "✓ SET" : "✗ NOT SET (using fallback)"}`);
+console.log(`  MONGO_URI: ${CRITICAL_ENV_VARS.MONGO_URI ? "✓ SET" : "✗ NOT SET"}`);
+
 // Use MONGO_URI only (Atlas). Ignore Railway's MONGO_URL, DATABASE_URL, etc. to prevent accidental Railway DB writes.
-const MONGO_URI = process.env.MONGO_URI;
+const MONGO_URI = CRITICAL_ENV_VARS.MONGO_URI;
 if (MONGO_URI) {
   // Extract host from URI for logging (helps verify Atlas vs Railway)
   let logHost = "";
