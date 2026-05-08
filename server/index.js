@@ -588,46 +588,61 @@ io.on("connection", async (socket) => {
 app.delete("/auth/classrooms/:code", authMiddleware, async (req, res) => {
   try {
     const code = normalizeRoomCode(req.params.code);
-    if (DEBUG_LOGS) console.log(`[DELETE] Request to delete classroom: ${code}`);
-    if (DEBUG_LOGS) console.log(`[DELETE] MongoDB database: ${mongoose.connection.name}, connected: ${mongoose.connection.readyState === 1}`);
+    console.log(`\n[DELETE] ====== DELETE CLASSROOM REQUEST ======`);
+    console.log(`[DELETE] Code: ${code}`);
+    console.log(`[DELETE] User sub: ${req.user?.sub} (type: ${typeof req.user?.sub})`);
+    console.log(`[DELETE] DB status: ${mongoose.connection.readyState === 1 ? "Connected" : "Disconnected"}`);
     
     if (!isValidRoomCode(code)) {
-      if (DEBUG_LOGS) console.warn(`[DELETE] Invalid room code format: ${code}`);
+      console.warn(`[DELETE] FAILED: Invalid room code format: ${code}`);
       return res.status(400).json({ ok: false, message: "Invalid room code format" });
     }
 
     const room = activeClassrooms.get(code);
     const classroom = await Classroom.findOne({ code });
-    if (DEBUG_LOGS) console.log(`[DELETE] Room in memory: ${!!room}, Classroom in DB: ${!!classroom}`);
+    console.log(`[DELETE] Room in memory: ${!!room}`);
+    console.log(`[DELETE] Classroom in DB: ${!!classroom}`);
     
     if (!room && !classroom) {
-      if (DEBUG_LOGS) console.warn(`[DELETE] Room not found: ${code}`);
+      console.warn(`[DELETE] FAILED: Room not found in memory or DB`);
       return res.status(404).json({ ok: false, message: "Room not found" });
+    }
+
+    if (classroom) {
+      console.log(`[DELETE] Classroom found: ${classroom._id}`);
+      console.log(`[DELETE] Classroom createdBy: ${classroom.createdBy} (type: ${typeof classroom.createdBy})`);
     }
 
     // Authorization: only the creator can delete the classroom
     const creatorId = classroom?.createdBy ? String(classroom.createdBy) : null;
     const requesterId = String(req.user?.sub || "");
     
-    console.log(`[DELETE] Authorization check - creatorId: ${creatorId}, requesterId: ${requesterId}`);
+    console.log(`[DELETE] ---- Authorization Check ----`);
+    console.log(`[DELETE] Creator ID: "${creatorId}" (type: ${typeof creatorId})`);
+    console.log(`[DELETE] Requester ID: "${requesterId}" (type: ${typeof requesterId})`);
+    console.log(`[DELETE] Match: ${creatorId === requesterId}`);
     
     // If classroom exists, check creator matches; if no creator, deny
     if (!creatorId || creatorId !== requesterId) {
-      console.warn(`[DELETE] Authorization denied. Expected creator: ${creatorId}, Got: ${requesterId}`);
+      console.warn(`[DELETE] FAILED: Authorization denied`);
+      console.warn(`[DELETE] Expected "${creatorId}" but got "${requesterId}"`);
       return res.status(403).json({
         ok: false,
         message: "Only the classroom creator can delete this class",
       });
     }
 
-    console.log(`[DELETE] Attempting to delete classroom with code: ${code}`);
+    console.log(`[DELETE] ✓ Authorization passed`);
+    console.log(`[DELETE] ---- Deleting from Database ----`);
     const deleteResult = await Classroom.deleteMany({ code });
-    console.log(`[DELETE] Delete result: deletedCount = ${deleteResult?.deletedCount}`);
+    console.log(`[DELETE] deleteMany result: deletedCount = ${deleteResult?.deletedCount}`);
     
     if (!deleteResult || deleteResult.deletedCount < 1) {
-      console.warn(`[DELETE] No documents deleted for code: ${code}`);
+      console.warn(`[DELETE] FAILED: No documents deleted for code: ${code}`);
       return res.status(404).json({ ok: false, message: "Room not found" });
     }
+    
+    console.log(`[DELETE] ✓ Deleted ${deleteResult.deletedCount} document(s) from DB`);
     
     if (room) {
       io.to(code).emit("room-error", { message: "This classroom has been deleted." });
@@ -636,7 +651,8 @@ app.delete("/auth/classrooms/:code", authMiddleware, async (req, res) => {
       }
     }
     activeClassrooms.delete(code);
-    console.log(`[DELETE] Successfully deleted classroom: ${code}`);
+    console.log(`[DELETE] ✓ Removed from in-memory cache`);
+    console.log(`[DELETE] ====== DELETE CLASSROOM SUCCESS ======\n`);
     
     return res.json({
       ok: true,
@@ -644,8 +660,9 @@ app.delete("/auth/classrooms/:code", authMiddleware, async (req, res) => {
       deletedCount: deleteResult.deletedCount,
     });
   } catch (error) {
-    console.error("Error deleting classroom:", error);
-    return res.status(500).json({ ok: false, message: "Error deleting classroom" });
+    console.error(`[DELETE] ERROR: ${error?.message || error}`);
+    console.error(error?.stack);
+    return res.status(500).json({ ok: false, message: "Error deleting classroom", detail: error?.message });
   }
 });
 
