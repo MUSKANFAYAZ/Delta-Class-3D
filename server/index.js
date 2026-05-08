@@ -369,11 +369,15 @@ app.get("/auth/_debug/mongo", (req, res) => {
 });
 
 // Serve index.html for SPA routing (only if build exists).
-// Keep this GET-only so API methods (POST/PUT/PATCH/DELETE) are not intercepted.
+// Express 5 + path-to-regexp rejects bare "*" routes, so use method-guarded middleware.
 if (clientBuildExists) {
-  app.get("*", (_req, res) => {
+  app.use((req, res, next) => {
+    if (req.method !== "GET") return next();
+    if (req.path.startsWith("/auth") || req.path.startsWith("/health") || req.path.startsWith("/socket.io")) {
+      return next();
+    }
     const indexPath = path.join(clientBuildPath, "index.html");
-    res.sendFile(indexPath, { headers: { "Cache-Control": "no-cache" } });
+    return res.sendFile(indexPath, { headers: { "Cache-Control": "no-cache" } });
   });
 }
 
