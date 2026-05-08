@@ -523,4 +523,29 @@ body {
   font-size: 13px;
 }
 
+/* Icon sizing for better mobile visibility */
+.dc-icon-btn,
+.dc-room-icon-btn {
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dc-icon-btn svg,
+.dc-room-icon-btn svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* Extra-large icons on very small phones */
+@media (max-width: 480px) {
+  .dc-icon-btn svg,
+  .dc-room-icon-btn svg {
+    width: 28px;
+    height: 28px;
+  }
+}
+
 
