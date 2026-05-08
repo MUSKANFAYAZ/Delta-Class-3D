@@ -9,6 +9,7 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 const authRouter = require("./routes/auth");
 const Classroom = require("./models/Classroom");
+const User = require("./models/User");
 const { authMiddleware, verifyToken } = require("./lib/auth");
 
 const PORT = process.env.PORT || 3000;
@@ -21,6 +22,29 @@ app.use(cors({ origin: "*", methods: ["GET", "POST", "PUT", "PATCH", "DELETE"] }
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
+
+app.get("/health/db", async (_req, res) => {
+  try {
+    const isConnected = mongoose.connection.readyState === 1;
+    const dbName = mongoose.connection.name;
+    if (!isConnected) {
+      return res.status(503).json({ ok: false, message: "MongoDB not connected", readyState: mongoose.connection.readyState });
+    }
+    // Try a simple DB operation
+    const userCount = await User.countDocuments();
+    return res.json({ 
+      ok: true, 
+      message: "Database connected", 
+      database: dbName,
+      userCount,
+      readyState: mongoose.connection.readyState
+    });
+  } catch (error) {
+    console.error("[/health/db] Error:", error?.message);
+    return res.status(503).json({ ok: false, message: "Database error", detail: error?.message });
+  }
+});
+
 app.use("/auth", authRouter);
 
 const io = new Server(server, {
