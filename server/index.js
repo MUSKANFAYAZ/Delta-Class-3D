@@ -276,6 +276,49 @@ app.get("/auth/classrooms/:code", async (req, res) => {
   }
 });
 
+// Temporary debug endpoint to verify which MongoDB URI the server is using.
+// Enable by setting DEBUG_DB=true in the environment (do NOT leave enabled long-term).
+app.get("/auth/_debug/mongo", (req, res) => {
+  if (String(process.env.DEBUG_DB || "").toLowerCase() !== "true") {
+    return res.status(404).json({ ok: false, message: "Not found" });
+  }
+
+  const uri = process.env.MONGO_URI || process.env.MONGO_URL || process.env.DATABASE_URL || "";
+  let masked = uri;
+  try {
+    // Mask credentials if present
+    masked = uri.replace(/(mongodb(?:\+srv)?:\/\/)([^:]+):([^@]+)@/, "$1<user>:<pass>@");
+  } catch (e) {
+    // ignore
+  }
+
+  // Extract host portion for easier identification
+  let host = "";
+  try {
+    const atIndex = uri.indexOf("@");
+    if (atIndex !== -1) {
+      const afterAt = uri.substring(atIndex + 1);
+      const slashIndex = afterAt.indexOf("/");
+      host = slashIndex === -1 ? afterAt : afterAt.substring(0, slashIndex);
+    } else if (uri.startsWith("mongodb+srv://") || uri.startsWith("mongodb://")) {
+      const withoutProto = uri.replace(/^mongodb(?:\+srv)?:\/\//, "");
+      const slashIndex = withoutProto.indexOf("/");
+      host = slashIndex === -1 ? withoutProto : withoutProto.substring(0, slashIndex);
+    }
+  } catch (e) {
+    host = "";
+  }
+
+  return res.json({
+    ok: true,
+    envPresent: Boolean(uri),
+    uriMasked: masked,
+    host,
+    mongooseReadyState: mongoose.connection.readyState,
+    connectedDbName: mongoose.connection.name || null,
+  });
+});
+
 // Serve index.html for SPA routing (only if build exists)
 if (clientBuildExists) {
   app.use((_req, res) => {
@@ -570,12 +613,30 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`✓ Server started on port ${PORT}`);
 });
 
-const MONGO_URI = process.env.MONGO_URI || process.env.MONGO_URL || process.env.DATABASE_URL;
+// Use MONGO_URI only (Atlas). Ignore Railway's MONGO_URL, DATABASE_URL, etc. to prevent accidental Railway DB writes.
+const MONGO_URI = process.env.MONGO_URI;
 if (MONGO_URI) {
+  // Extract host from URI for logging (helps verify Atlas vs Railway)
+  let logHost = "";
+  try {
+    const atIdx = MONGO_URI.indexOf("@");
+    if (atIdx !== -1) {
+      const afterAt = MONGO_URI.substring(atIdx + 1);
+      logHost = afterAt.split("/")[0]; // Extract host before first slash
+    }
+  } catch (e) {
+    logHost = "unknown";
+  }
+  
+  console.log(`[DB] Connecting to MongoDB URI with host: ${logHost}`);
   mongoose
     .connect(MONGO_URI)
-    .then(() => console.log(`✓ MongoDB connected to ${mongoose.connection.name}`))
-    .catch((e) => console.error("MongoDB connection failed:", e?.message || e));
+    .then(() => {
+      console.log(`✓ MongoDB connected to database: ${mongoose.connection.name} (URI host: ${logHost})`);
+    })
+    .catch((e) => {
+      console.error(`✗ MongoDB connection failed for host ${logHost}:`, e?.message || e);
+    });
 } else {
-  console.warn("Set MONGO_URI to a valid MongoDB Atlas connection string (or any MongoDB URI) before starting the server.");
+  console.error("✗ MONGO_URI not set — server will not connect to any database. Set MONGO_URI to your MongoDB Atlas connection string and restart.");
 }
