@@ -99,6 +99,10 @@ function getRoomOwnerId(room) {
       if (typeof owner.id === "string" || typeof owner.id === "number") return String(owner.id);
       if (typeof owner._id === "string" || typeof owner._id === "number") return String(owner._id);
       if (typeof owner.sub === "string" || typeof owner.sub === "number") return String(owner.sub);
+      if (typeof owner.toString === "function") {
+        const text = String(owner.toString());
+        if (text && text !== "[object Object]") return text;
+      }
     }
   }
 
@@ -110,6 +114,10 @@ function getRoomOwnerId(room) {
     if (typeof host.id === "string" || typeof host.id === "number") return String(host.id);
     if (typeof host._id === "string" || typeof host._id === "number") return String(host._id);
     if (typeof host.sub === "string" || typeof host.sub === "number") return String(host.sub);
+    if (typeof host.toString === "function") {
+      const text = String(host.toString());
+      if (text && text !== "[object Object]") return text;
+    }
   }
 
   return null;
