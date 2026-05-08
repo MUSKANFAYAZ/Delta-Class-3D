@@ -368,9 +368,10 @@ app.get("/auth/_debug/mongo", (req, res) => {
   });
 });
 
-// Serve index.html for SPA routing (only if build exists)
+// Serve index.html for SPA routing (only if build exists).
+// Keep this GET-only so API methods (POST/PUT/PATCH/DELETE) are not intercepted.
 if (clientBuildExists) {
-  app.use((_req, res) => {
+  app.get("*", (_req, res) => {
     const indexPath = path.join(clientBuildPath, "index.html");
     res.sendFile(indexPath, { headers: { "Cache-Control": "no-cache" } });
   });
