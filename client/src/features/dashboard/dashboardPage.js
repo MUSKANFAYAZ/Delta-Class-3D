@@ -2,30 +2,6 @@ import { generateMeetingCode } from "./utils/meetingCode.js";
 import { mountDeleteButton } from "./components/DeleteButton.js";
 
 /**
- * Reads the list of classrooms from local storage.
- * @returns {Array} List of room objects.
- */
-function readRooms() {
-  try {
-    const raw = localStorage.getItem("delta-my-rooms");
-    const list = raw ? JSON.parse(raw) : [];
-    return Array.isArray(list) ? list : [];
-  } catch {
-    return [];
-  }
-}
-
-function removeRoomFromStorage(roomCode) {
-  const normalizedCode = String(roomCode || "").trim().toLowerCase();
-  if (!normalizedCode) return;
-  const rooms = readRooms();
-  const nextRooms = rooms.filter(
-    (room) => String(room.code || "").trim().toLowerCase() !== normalizedCode,
-  );
-  localStorage.setItem("delta-my-rooms", JSON.stringify(nextRooms));
-}
-
-/**
  * Formats a timestamp into a localized date string.
  * @param {number|string} ts - The timestamp.
  * @returns {string} Formatted date.
@@ -244,7 +220,6 @@ export function mountDashboard(
           roomCode: room.code,
           api: api,
           onDeleteSuccess: () => {
-            removeRoomFromStorage(room.code);
             card.remove();
             if (!cards.childElementCount) {
               noCards.hidden = false;
@@ -259,7 +234,7 @@ export function mountDashboard(
   async function syncRooms() {
     if (!isLoggedIn) return;
     try {
-      const rooms = typeof onResolveRooms === "function" ? await onResolveRooms() : readRooms();
+      const rooms = typeof onResolveRooms === "function" ? await onResolveRooms() : [];
       renderCards(rooms);
       const noCards = wrap.querySelector("#dc-no-cards");
       if (noCards && !rooms.length) {
@@ -291,10 +266,8 @@ export function mountDashboard(
       try {
         rooms = await onResolveRooms();
       } catch {
-        rooms = readRooms();
+        rooms = [];
       }
-    } else {
-      rooms = readRooms();
     }
 
     renderCards(rooms);

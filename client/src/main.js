@@ -258,43 +258,6 @@ function navigate(path) {
   window.location.hash = path;
 }
 
-function rememberRoom(entry) {
-  const rooms = (() => {
-    try {
-      const raw = localStorage.getItem("delta-my-rooms");
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  })();
-  const normalizedCode = String(entry.code || "")
-    .trim()
-    .toLowerCase();
-  const next = rooms.filter((room) => String(room.code || "").toLowerCase() !== normalizedCode);
-  next.unshift({ ...entry, code: normalizedCode });
-  localStorage.setItem("delta-my-rooms", JSON.stringify(next.slice(0, 20)));
-}
-
-function readSavedRooms() {
-  try {
-    const raw = localStorage.getItem("delta-my-rooms");
-    const list = raw ? JSON.parse(raw) : [];
-    return Array.isArray(list) ? list : [];
-  } catch {
-    return [];
-  }
-}
-
-function removeSavedRoom(roomCode) {
-  const normalizedCode = String(roomCode || "").trim().toLowerCase();
-  if (!normalizedCode) return;
-  const rooms = readSavedRooms();
-  const nextRooms = rooms.filter(
-    (room) => String(room.code || "").trim().toLowerCase() !== normalizedCode,
-  );
-  localStorage.setItem("delta-my-rooms", JSON.stringify(nextRooms));
-}
-
 async function fetchSharedClassrooms() {
   try {
     const data = await api("/classrooms");
@@ -305,78 +268,26 @@ async function fetchSharedClassrooms() {
 }
 
 async function resolveExistingRooms() {
-  const viewerRole = localStorage.getItem("delta-user-role") || "student";
-  let endedRoomsRemoved = false;
-
-  const savedRooms = readSavedRooms();
   const sharedRooms = await fetchSharedClassrooms();
+  if (!Array.isArray(sharedRooms)) return [];
 
-  // Prefer server data. Only fall back to local storage when the server is unreachable.
-  const sourceRooms = Array.isArray(sharedRooms) ? sharedRooms : savedRooms;
-  const roomMap = new Map();
-
-  for (const room of sourceRooms) {
-    if (!room?.code) continue;
-    const code = String(room.code).trim().toLowerCase();
-    roomMap.set(code, {
-      code,
-      subject: room.subject || "",
-      timing: room.timing || "",
-      info: room.info || "",
-      capacity: room.capacity || "",
-      canDelete: Boolean(room.canDelete) && viewerRole === "teacher",
-      host: viewerRole === "teacher" && Boolean(room.canDelete || room.host),
-      teacherPresent: Boolean(room.teacherPresent),
-      at: room.createdAt || room.at || Date.now(),
+  const viewerRole = localStorage.getItem("delta-user-role") || "student";
+  return sharedRooms
+    .filter((room) => room?.code)
+    .map((room) => {
+      const code = String(room.code).trim().toLowerCase();
+      return {
+        code,
+        subject: room.subject || "",
+        timing: room.timing || "",
+        info: room.info || "",
+        capacity: room.capacity || "",
+        canDelete: Boolean(room.canDelete) && viewerRole === "teacher",
+        host: viewerRole === "teacher" && Boolean(room.canDelete || room.host),
+        teacherPresent: Boolean(room.teacherPresent),
+        at: room.createdAt || room.at || Date.now(),
+      };
     });
-  }
-
-  const rooms = [...roomMap.values()];
-  if (!rooms.length) return [];
-
-  const checks = await Promise.all(
-    rooms.map(async (room) => {
-      const code = String(room.code || "").trim().toLowerCase();
-      if (!code) return null;
-      try {
-        const data = await api(`/classrooms/${encodeURIComponent(code)}`);
-        if (data?.exists === false) {
-          return null;
-        }
-
-        if (data?.exists) {
-          return {
-            ...room,
-            code,
-            canDelete: viewerRole === "teacher" && Boolean(data?.canDelete),
-            host: Boolean(data?.canDelete) || Boolean(room.host),
-            subject: data?.subject ?? room.subject ?? "",
-            timing: data?.timing ?? room.timing ?? "",
-            info: data?.info ?? room.info ?? "",
-            capacity: data?.capacity ?? room.capacity ?? "",
-            teacherPresent: Boolean(data?.teacherPresent),
-            at: data?.createdAt ?? room.at,
-          };
-        }
-
-        // Unknown payload shape: keep local room instead of losing it.
-        return { ...room, code };
-      } catch {
-        // If the server is reachable enough to return the room list but not this item,
-        // keep the current room entry so 2G/network blips do not blank the dashboard.
-        return { ...room, code };
-      }
-    }),
-  );
-
-  const valid = checks.filter(Boolean);
-  if (endedRoomsRemoved) {
-    localStorage.setItem("delta-dashboard-notice", "A classroom session has ended and was removed from your dashboard.");
-  }
-  if (Array.isArray(sharedRooms)) {
-    localStorage.setItem("delta-my-rooms", JSON.stringify(valid));
-  }
-  return valid;
 }
 
 function parseHash() {
@@ -591,7 +502,6 @@ async function renderRoute() {
         if (data?.teacherPresent === false) {
           return { ok: false, message: "Class session is not started yet. Please wait for the teacher to enter the classroom." };
         }
-        rememberRoom({ code: room, host: false, at: Date.now() });
         localStorage.setItem("delta-active-room", room);
         navigate(`/dashboard?role=${role}`);
         return { ok: true };
@@ -610,7 +520,6 @@ async function renderRoute() {
           method: "POST",
           body: { ...payload, code: normalized },
         });
-        rememberRoom({ ...payload, code: normalized, host: true, at: Date.now() });
         localStorage.setItem("delta-active-room", normalized);
         
         // Ensure teacher role is explicitly set on navigation
