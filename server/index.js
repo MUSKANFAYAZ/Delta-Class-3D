@@ -176,6 +176,8 @@ app.post("/auth/classrooms", authMiddleware, async (req, res) => {
     const code = normalizeRoomCode(req.body?.code);
     const { subject, timing, capacity, info } = req.body;
     
+    console.log(`[POST /auth/classrooms] User: ${req.user?.sub}, Code: ${code}`);
+    
     if (!isValidRoomCode(code)) {
       return res.status(400).json({ message: "Invalid room code format" });
     }
@@ -193,6 +195,8 @@ app.post("/auth/classrooms", authMiddleware, async (req, res) => {
       createdBy: req.user.sub,
     });
     
+    console.log(`[POST /auth/classrooms] Created/Updated classroom ${code} by user ${req.user.sub}, createdBy in DB: ${classroom.createdBy}`);
+    
     return res.status(exists ? 200 : 201).json({
       ok: true,
       code: classroom.code,
@@ -205,17 +209,21 @@ app.post("/auth/classrooms", authMiddleware, async (req, res) => {
       participants: (classroom.studentAssignments?.size || 0) + (classroom.teacherPositions?.size || 0),
     });
   } catch (error) {
-    console.error("Error creating classroom:", error);
-    res.status(500).json({ message: "Error creating classroom" });
+    console.error("[POST /auth/classrooms] Error creating classroom:", error?.message || error, error?.stack);
+    res.status(500).json({ message: "Error creating classroom", detail: error?.message });
   }
 });
 
 app.get("/auth/classrooms", authMiddleware, async (req, res) => {
   try {
+    console.log(`[GET /auth/classrooms] User: ${req.user?.sub}, Role: ${req.user?.role}`);
+    
     const classrooms = await Classroom.find({})
       .sort({ createdAt: -1 })
       .limit(100)
       .lean();
+
+    console.log(`[GET /auth/classrooms] Found ${classrooms.length} classrooms in DB`);
 
     return res.json({
       classrooms: classrooms.map((classroom) => {
@@ -238,8 +246,8 @@ app.get("/auth/classrooms", authMiddleware, async (req, res) => {
       }),
     });
   } catch (error) {
-    console.error("Error fetching classrooms:", error);
-    return res.status(500).json({ message: "Error fetching classrooms" });
+    console.error("[GET /auth/classrooms] Error fetching classrooms:", error?.message || error, error?.stack);
+    return res.status(500).json({ message: "Error fetching classrooms", detail: error?.message });
   }
 });
 
