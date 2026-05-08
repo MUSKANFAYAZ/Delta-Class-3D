@@ -12,6 +12,9 @@ const Classroom = require("./models/Classroom");
 const User = require("./models/User");
 const { authMiddleware, verifyToken } = require("./lib/auth");
 
+// Controlled debug logging. Set DEBUG_LOGS=true in env to enable verbose logs.
+const DEBUG_LOGS = String(process.env.DEBUG_LOGS || "").toLowerCase() === "true";
+
 const PORT = process.env.PORT || 3000;
 const MAX_STUDENT_SLOTS = 25;
 
@@ -23,7 +26,7 @@ app.use(express.json({ limit: "1mb" }));
 
 // Request logging middleware
 app.use((req, res, next) => {
-  console.log(`[HTTP] ${req.method} ${req.path}`);
+  if (DEBUG_LOGS) console.log(`[HTTP] ${req.method} ${req.path}`);
   next();
 });
 
@@ -156,7 +159,7 @@ const clientBuildExists = fs.existsSync(clientBuildPath);
 
 if (clientBuildExists) {
   app.use(express.static(clientBuildPath));
-  console.log(`Serving frontend from ${clientBuildPath}`);
+  if (DEBUG_LOGS) console.log(`Serving frontend from ${clientBuildPath}`);
 } else {
   app.use((_req, res) => {
     res.status(503).send(
@@ -206,7 +209,7 @@ app.post("/auth/classrooms", authMiddleware, async (req, res) => {
     const code = normalizeRoomCode(req.body?.code);
     const { subject, timing, capacity, info } = req.body;
     
-    console.log(`[POST /auth/classrooms] User: ${req.user?.sub}, Code: ${code}`);
+    if (DEBUG_LOGS) console.log(`[POST /auth/classrooms] User: ${req.user?.sub}, Code: ${code}`);
     
     if (!isValidRoomCode(code)) {
       return res.status(400).json({ message: "Invalid room code format" });
@@ -225,7 +228,7 @@ app.post("/auth/classrooms", authMiddleware, async (req, res) => {
       createdBy: req.user.sub,
     });
     
-    console.log(`[POST /auth/classrooms] Created/Updated classroom ${code} by user ${req.user.sub}, createdBy in DB: ${classroom.createdBy}`);
+    if (DEBUG_LOGS) console.log(`[POST /auth/classrooms] Created/Updated classroom ${code} by user ${req.user.sub}, createdBy in DB: ${classroom.createdBy}`);
     
     return res.status(exists ? 200 : 201).json({
       ok: true,
@@ -246,14 +249,14 @@ app.post("/auth/classrooms", authMiddleware, async (req, res) => {
 
 app.get("/auth/classrooms", authMiddleware, async (req, res) => {
   try {
-    console.log(`[GET /auth/classrooms] User: ${req.user?.sub}, Role: ${req.user?.role}`);
+    if (DEBUG_LOGS) console.log(`[GET /auth/classrooms] User: ${req.user?.sub}, Role: ${req.user?.role}`);
     
     const classrooms = await Classroom.find({})
       .sort({ createdAt: -1 })
       .limit(100)
       .lean();
 
-    console.log(`[GET /auth/classrooms] Found ${classrooms.length} classrooms in DB`);
+    if (DEBUG_LOGS) console.log(`[GET /auth/classrooms] Found ${classrooms.length} classrooms in DB`);
 
     return res.json({
       classrooms: classrooms.map((classroom) => {
@@ -384,7 +387,7 @@ io.on("connection", async (socket) => {
     try {
       classroom = await Classroom.findOne({ code: roomCode });
     } catch (dbError) {
-      console.error("Classroom lookup failed:", dbError?.message || dbError);
+      if (DEBUG_LOGS) console.error("Classroom lookup failed:", dbError?.message || dbError);
     }
 
     const hasActiveSession = activeClassrooms.has(roomCode);
@@ -403,7 +406,7 @@ io.on("connection", async (socket) => {
     socket.data.roomCode = roomCode;
     socket.join(roomCode);
 
-    console.log(`Socket connected: ${socket.id} (${role}) room=${roomCode}`);
+    if (DEBUG_LOGS) console.log(`Socket connected: ${socket.id} (${role}) room=${roomCode}`);
 
     if (role === "teacher") {
       activeSession.teacherSocketIds.add(socket.id);
@@ -525,7 +528,7 @@ io.on("connection", async (socket) => {
     });
 
     socket.on("disconnect", (reason) => {
-      console.log(`Socket disconnected: ${socket.id} reason=${reason}`);
+      if (DEBUG_LOGS) console.log(`Socket disconnected: ${socket.id} reason=${reason}`);
 
       activeSession.studentAssignments.delete(socket.id);
       activeSession.studentPositions.delete(socket.id);
@@ -577,20 +580,20 @@ io.on("connection", async (socket) => {
 app.delete("/auth/classrooms/:code", authMiddleware, async (req, res) => {
   try {
     const code = normalizeRoomCode(req.params.code);
-    console.log(`[DELETE] Request to delete classroom: ${code}`);
-    console.log(`[DELETE] MongoDB database: ${mongoose.connection.name}, connected: ${mongoose.connection.readyState === 1}`);
+    if (DEBUG_LOGS) console.log(`[DELETE] Request to delete classroom: ${code}`);
+    if (DEBUG_LOGS) console.log(`[DELETE] MongoDB database: ${mongoose.connection.name}, connected: ${mongoose.connection.readyState === 1}`);
     
     if (!isValidRoomCode(code)) {
-      console.warn(`[DELETE] Invalid room code format: ${code}`);
+      if (DEBUG_LOGS) console.warn(`[DELETE] Invalid room code format: ${code}`);
       return res.status(400).json({ ok: false, message: "Invalid room code format" });
     }
 
     const room = activeClassrooms.get(code);
     const classroom = await Classroom.findOne({ code });
-    console.log(`[DELETE] Room in memory: ${!!room}, Classroom in DB: ${!!classroom}`);
+    if (DEBUG_LOGS) console.log(`[DELETE] Room in memory: ${!!room}, Classroom in DB: ${!!classroom}`);
     
     if (!room && !classroom) {
-      console.warn(`[DELETE] Room not found: ${code}`);
+      if (DEBUG_LOGS) console.warn(`[DELETE] Room not found: ${code}`);
       return res.status(404).json({ ok: false, message: "Room not found" });
     }
 

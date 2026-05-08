@@ -80,6 +80,9 @@ let dashboardChunkPrefetched = false;
 function prefetchDashboardRouteChunks() {
   if (dashboardChunkPrefetched) return;
   dashboardChunkPrefetched = true;
+  // Don't prefetch heavy dashboard chunks when on a low-bandwidth connection
+  if (isLowBandwidthConnection()) return;
+
   runWhenIdle(() => {
     import("./features/dashboard/createClassroomPage.js").catch(() => {});
     import("./features/dashboard/joinClassroomPage.js").catch(() => {});
