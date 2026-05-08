@@ -27,11 +27,24 @@ async function api(path, { method = "GET", body, token } = {}) {
   const currentToken = token ?? getToken();
   if (currentToken) headers.Authorization = `Bearer ${currentToken}`;
 
-  const res = await fetch(`${AUTH.baseUrl}${path}`, {
+  const url = `${AUTH.baseUrl}${path}`;
+  try {
+    console.debug("[api] request", { method, url, tokenPresent: Boolean(currentToken) });
+  } catch {
+    // ignore logging failures in restricted environments
+  }
+
+  const res = await fetch(url, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
   });
+
+  try {
+    console.debug("[api] response", { method, url, status: res.status });
+  } catch {
+    // ignore
+  }
 
   let data = null;
   try {

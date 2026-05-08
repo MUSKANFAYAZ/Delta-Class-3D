@@ -577,5 +577,5 @@ if (MONGO_URI) {
     .then(() => console.log(`✓ MongoDB connected to ${mongoose.connection.name}`))
     .catch((e) => console.error("MongoDB connection failed:", e?.message || e));
 } else {
-  console.warn("MONGO_URI or MONGO_URL not set — auth storage will not work until MongoDB is configured.");
+  console.warn("Set MONGO_URI to a valid MongoDB Atlas connection string (or any MongoDB URI) before starting the server.");
 }
