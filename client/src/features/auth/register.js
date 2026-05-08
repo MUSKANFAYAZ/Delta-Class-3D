@@ -95,9 +95,15 @@ export function mountRegister(root, { api, onDone, onGoLogin, role = "student", 
   const idValue = el("strong", { text: "" });
   const copyIdButton = el("button", { type: "button", class: "dc-btn dc-btn-secondary", text: "Copy code" });
   copyIdButton.addEventListener("click", async () => {
+    const uniqueCode = String(idValue.textContent || "").trim();
+    if (!uniqueCode) {
+      status.textContent = "Please register first to generate your unique code.";
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(idValue.textContent || "");
-      status.textContent = "Code copied to clipboard.";
+      await navigator.clipboard.writeText(uniqueCode);
+      status.textContent = "Code copied. Redirecting to login...";
+      onGoLogin?.(currentRole);
     } catch {
       status.textContent = "Could not copy automatically. Please copy it manually.";
     }
