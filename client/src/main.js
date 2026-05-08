@@ -300,7 +300,7 @@ async function fetchSharedClassrooms() {
     const data = await api("/classrooms");
     return Array.isArray(data?.classrooms) ? data.classrooms : [];
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -310,38 +310,24 @@ async function resolveExistingRooms() {
 
   const savedRooms = readSavedRooms();
   const sharedRooms = await fetchSharedClassrooms();
+
+  // Prefer server data. Only fall back to local storage when the server is unreachable.
+  const sourceRooms = Array.isArray(sharedRooms) ? sharedRooms : savedRooms;
   const roomMap = new Map();
 
-  for (const room of sharedRooms) {
+  for (const room of sourceRooms) {
     if (!room?.code) continue;
-    roomMap.set(String(room.code).trim().toLowerCase(), {
-      code: String(room.code).trim().toLowerCase(),
+    const code = String(room.code).trim().toLowerCase();
+    roomMap.set(code, {
+      code,
       subject: room.subject || "",
       timing: room.timing || "",
       info: room.info || "",
       capacity: room.capacity || "",
       canDelete: Boolean(room.canDelete) && viewerRole === "teacher",
-      host: viewerRole === "teacher" && Boolean(room.canDelete),
+      host: viewerRole === "teacher" && Boolean(room.canDelete || room.host),
       teacherPresent: Boolean(room.teacherPresent),
-      at: room.createdAt || Date.now(),
-    });
-  }
-
-  for (const room of savedRooms) {
-    const code = String(room.code || "").trim().toLowerCase();
-    if (!code) continue;
-    const existing = roomMap.get(code) || { code };
-    roomMap.set(code, {
-      ...existing,
-      ...room,
-      code,
-      canDelete: viewerRole === "teacher" ? Boolean(existing.canDelete || room.canDelete || room.host) : Boolean(room.canDelete),
-      host: viewerRole === "teacher" ? Boolean(existing.canDelete || room.host) : Boolean(room.host),
-      teacherPresent: Boolean(existing.teacherPresent ?? room.teacherPresent),
-      subject: existing.subject ?? room.subject ?? "",
-      timing: existing.timing ?? room.timing ?? "",
-      info: existing.info ?? room.info ?? "",
-      capacity: existing.capacity ?? room.capacity ?? "",
+      at: room.createdAt || room.at || Date.now(),
     });
   }
 
@@ -376,7 +362,8 @@ async function resolveExistingRooms() {
         // Unknown payload shape: keep local room instead of losing it.
         return { ...room, code };
       } catch {
-        // Temporary API/DNS issues should not wipe the user's saved classrooms.
+        // If the server is reachable enough to return the room list but not this item,
+        // keep the current room entry so 2G/network blips do not blank the dashboard.
         return { ...room, code };
       }
     }),
@@ -386,7 +373,9 @@ async function resolveExistingRooms() {
   if (endedRoomsRemoved) {
     localStorage.setItem("delta-dashboard-notice", "A classroom session has ended and was removed from your dashboard.");
   }
-  localStorage.setItem("delta-my-rooms", JSON.stringify(valid));
+  if (Array.isArray(sharedRooms)) {
+    localStorage.setItem("delta-my-rooms", JSON.stringify(valid));
+  }
   return valid;
 }
 
