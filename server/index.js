@@ -605,14 +605,15 @@ app.delete("/auth/classrooms/:code", authMiddleware, async (req, res) => {
       return res.status(404).json({ ok: false, message: "Room not found" });
     }
 
-    const ownerId = getRoomOwnerId(classroom || room);
+    // Authorization: only the creator can delete the classroom
+    const creatorId = classroom?.createdBy ? String(classroom.createdBy) : null;
     const requesterId = String(req.user?.sub || "");
-    const isTeacher = String(req.user?.role || "") === "teacher";
-    const hasCreator = Boolean(classroom?.createdBy);
-    console.log(`[DELETE] Authorization check - ownerId: ${ownerId}, requesterId: ${requesterId}, isTeacher: ${isTeacher}, hasCreator: ${hasCreator}`);
     
-    if ((!ownerId || ownerId !== requesterId) && !(isTeacher && !hasCreator)) {
-      console.warn(`[DELETE] Authorization failed for user ${requesterId}`);
+    console.log(`[DELETE] Authorization check - creatorId: ${creatorId}, requesterId: ${requesterId}`);
+    
+    // If classroom exists, check creator matches; if no creator, deny
+    if (!creatorId || creatorId !== requesterId) {
+      console.warn(`[DELETE] Authorization denied. Expected creator: ${creatorId}, Got: ${requesterId}`);
       return res.status(403).json({
         ok: false,
         message: "Only the classroom creator can delete this class",
