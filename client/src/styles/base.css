@@ -32,6 +32,47 @@ body {
   color: #0f172a;
 }
 
+@media (max-width: 768px) {
+  body {
+    overflow-x: hidden;
+  }
+
+  .shell {
+    height: auto;
+    min-height: 100%;
+    overflow: auto;
+  }
+
+  .topbar {
+    position: sticky;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    margin: 8px;
+    padding: 10px 12px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .controls {
+    position: static;
+    top: auto;
+    left: auto;
+    width: calc(100% - 16px);
+    margin: 8px;
+  }
+
+  .canvas-container {
+    min-height: 100vh;
+  }
+}
+
 .shell {
   position: relative;
   width: 100%;
@@ -161,6 +202,140 @@ body {
 .canvas-container {
   width: 100%;
   height: 100%;
+}
+
+.dc-room-shell {
+  overflow: hidden;
+}
+
+.dc-room-topbar-shell {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 20;
+}
+
+.dc-room-brand {
+  text-align: left;
+  font-size: 20px;
+  margin: 0;
+}
+
+.dc-room-status {
+  margin: 3px 0 0;
+}
+
+.dc-room-voice-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.dc-room-icon-btn {
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dc-bandwidth-panel {
+  position: absolute;
+  left: 12px;
+  top: 88px;
+  z-index: 20;
+  width: min(320px, calc(100% - 24px));
+  background: var(--dc-card);
+  border: 1px solid var(--dc-border);
+  border-radius: 14px;
+  padding: 14px;
+  display: grid;
+  gap: 8px;
+  box-shadow: var(--dc-shadow);
+}
+
+.dc-classroom-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+}
+
+.dc-room-exit-backdrop {
+  z-index: 9999;
+  align-items: center;
+  justify-content: center;
+}
+
+.dc-room-exit-modal {
+  text-align: center;
+}
+
+.dc-room-exit-title {
+  margin: 0 0 8px;
+  color: #0f172a;
+}
+
+.dc-room-exit-copy {
+  margin: 0 0 16px;
+  color: #0f172a;
+}
+
+.dc-room-exit-actions {
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .dc-room-shell {
+    overflow: hidden;
+    min-height: 100vh;
+  }
+
+  .dc-room-topbar-shell {
+    position: sticky;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    margin: 8px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .dc-room-brand {
+    font-size: 18px;
+  }
+
+  .dc-room-voice-controls {
+    flex-wrap: wrap;
+  }
+
+  .dc-room-icon-btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .dc-bandwidth-panel {
+    position: static;
+    width: calc(100% - 16px);
+    margin: 0 8px 8px;
+  }
+
+  .dc-classroom-canvas {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+  }
+
+  .dc-room-exit-modal {
+    width: calc(100vw - 24px);
+    padding: 18px;
+  }
+
+  .dc-room-topbar-shell .dc-topbar-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
 }
 
 /* ========== Delta Class 3D — blue theme (dashboard + auth only) ========== */
