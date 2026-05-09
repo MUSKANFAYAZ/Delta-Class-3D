@@ -214,28 +214,6 @@ body {
   left: 12px;
   right: 12px;
   z-index: 20;
-  display: flex;
-  justify-content: flex-start;
-  align-items: center;
-  gap: 16px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  border-radius: 14px;
-  padding: 10px 16px;
-  backdrop-filter: blur(6px);
-  flex-wrap: wrap;
-}
-.dc-room-topbar-shell > div:first-child {
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-}
-
-.dc-room-topbar-shell .dc-topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-left: auto;
 }
 
 .dc-room-brand {
@@ -314,18 +292,13 @@ body {
 
   .dc-room-topbar-shell {
     position: sticky;
-    top: 0;
-    left: 0;
-    right: 0;
-    margin: 0;
-    padding: 10px 12px;
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    border-radius: 0;
-    border: none;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    margin: 8px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
   }
 
   .dc-room-brand {
@@ -359,24 +332,9 @@ body {
   }
 
   .dc-room-topbar-shell .dc-topbar-actions {
-    margin-left: 0;
     width: 100%;
+    justify-content: flex-start;
     flex-wrap: wrap;
-  }
-}
-
-@media (max-width: 1024px) {
-  .dc-room-topbar-shell {
-    padding: 10px 12px;
-    gap: 10px;
-  }
-
-  .dc-room-brand {
-    font-size: 18px;
-  }
-
-  .dc-room-status {
-    font-size: 11px;
   }
 }
 
@@ -387,7 +345,7 @@ body {
   width: 100%;
   min-height: 100%;
   height: 100%;
-  overflow: hidden;
+  overflow: auto;
   background: linear-gradient(155deg, #fff3ea 0%, #f8edff 45%, #eef2ff 100%);
 }
 

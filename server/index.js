@@ -257,21 +257,38 @@ app.post("/auth/classrooms", authMiddleware, async (req, res) => {
 
 app.get("/auth/classrooms", authMiddleware, async (req, res) => {
   try {
-    if (DEBUG_LOGS) console.log(`[GET /auth/classrooms] User: ${req.user?.sub}, Role: ${req.user?.role}`);
+    const userId = String(req.user?.sub || "");
+    const role = String(req.user?.role || "");
     
-    const classrooms = await Classroom.find({})
-      .sort({ createdAt: -1 })
-      .limit(100)
-      .lean();
+    if (DEBUG_LOGS) console.log(`[GET /auth/classrooms] User: ${userId}, Role: ${role}`);
+    
+    let classrooms;
+    
+    if (role === "teacher") {
+      // Teachers see only classrooms they created
+      classrooms = await Classroom.find({ createdBy: userId })
+        .sort({ createdAt: -1 })
+        .limit(100)
+        .lean();
+    } else {
+      // Students see all classrooms, but filter to those they're assigned to
+      const allClassrooms = await Classroom.find({})
+        .sort({ createdAt: -1 })
+        .limit(100)
+        .lean();
+      
+      classrooms = allClassrooms.filter((classroom) => {
+        const studentAssignmentKeys = Object.keys(classroom.studentAssignments || {});
+        return studentAssignmentKeys.includes(userId);
+      });
+    }
 
-    if (DEBUG_LOGS) console.log(`[GET /auth/classrooms] Found ${classrooms.length} classrooms in DB`);
+    if (DEBUG_LOGS) console.log(`[GET /auth/classrooms] Found ${classrooms.length} classrooms`);
 
     return res.json({
       classrooms: classrooms.map((classroom) => {
         const code = String(classroom.code || "").toLowerCase();
         const activeSession = activeClassrooms.get(code);
-        const requesterId = String(req.user?.sub || "");
-        const isTeacher = String(req.user?.role || "") === "teacher";
         const hasCreator = Boolean(classroom.createdBy);
         return {
           code,
@@ -282,7 +299,7 @@ app.get("/auth/classrooms", authMiddleware, async (req, res) => {
           createdAt: classroom.createdAt || classroom.created_at || null,
           teacherPresent: Boolean(activeSession?.teacherPresent),
           participants: (classroom.studentAssignments?.size || 0) + (classroom.teacherPositions?.size || 0),
-          canDelete: (hasCreator && String(classroom.createdBy || "") === requesterId) || (!hasCreator && isTeacher),
+          canDelete: (hasCreator && String(classroom.createdBy || "") === userId) || (!hasCreator && role === "teacher"),
         };
       }),
     });
