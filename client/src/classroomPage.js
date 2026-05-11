@@ -174,14 +174,6 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
     });
   }
 
-  window.addEventListener("beforeunload", (e) => {
-    if (reloadModalBackdrop) {
-      e.preventDefault();
-      reloadModalBackdrop.style.display = "flex";
-      e.returnValue = "";
-    }
-  });
-
   function setStatus(message, badgeText, badgeConnected = false) {
     connectionStatus.textContent = message;
     connectionBadge.textContent = badgeText;
