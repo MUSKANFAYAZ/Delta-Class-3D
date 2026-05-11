@@ -75,29 +75,36 @@ export function setupImageSync({
       const micBtn = document.createElement("button");
       micBtn.className = "dc-btn dc-btn-secondary";
       micBtn.id = "presentation-mic-btn";
+
+      const isMutedNow = () => {
+        const voiceSystem = window.activeVoiceSystem;
+        if (typeof voiceSystem?.isMuted === "boolean") {
+          return voiceSystem.isMuted;
+        }
+        const mainMuteBtn = document.getElementById("mute-button");
+        return mainMuteBtn ? mainMuteBtn.title === "Unmute Mic" : true;
+      };
       
       const updateMicBtnState = () => {
-        const mainMuteBtn = document.getElementById("mute-button");
-        if (mainMuteBtn) {
-          const isNowMuted = mainMuteBtn.title === "Unmute Mic";
-          micBtn.textContent = isNowMuted ? "Unmute Mic" : "Mute Mic";
-          micBtn.style.backgroundColor = isNowMuted ? "" : "#16a34a";
-          micBtn.style.color = isNowMuted ? "" : "#fff";
-        }
+        const isNowMuted = isMutedNow();
+        micBtn.textContent = isNowMuted ? "Unmute Mic" : "Mute Mic";
+        micBtn.style.backgroundColor = isNowMuted ? "" : "#16a34a";
+        micBtn.style.color = isNowMuted ? "" : "#fff";
       };
       
       // Initial state
       setTimeout(updateMicBtnState, 0);
 
       micBtn.onclick = () => {
-        const voiceSystem = window.activeVoiceSystem;
-        if (voiceSystem?.ensureUnmuted) {
-          voiceSystem.ensureUnmuted();
-          voiceSystem.refreshRemoteAudioElements?.();
+        const mainMuteBtn = document.getElementById("mute-button");
+        if (mainMuteBtn) {
+          // Reuse the primary button handler so icon, title, and track state stay in sync.
+          mainMuteBtn.click();
         } else {
-          const mainMuteBtn = document.getElementById("mute-button");
-          if (mainMuteBtn) {
-            mainMuteBtn.click();
+          const voiceSystem = window.activeVoiceSystem;
+          if (voiceSystem?.toggleMute) {
+            voiceSystem.toggleMute();
+            voiceSystem.refreshRemoteAudioElements?.();
           }
         }
         updateMicBtnState();
@@ -256,14 +263,12 @@ export function setupImageSync({
 
       // Auto-unmute mic when sharing
       const voiceSystem = window.activeVoiceSystem;
-      if (voiceSystem?.ensureUnmuted) {
+      const mainMuteBtn = document.getElementById("mute-button");
+      if (mainMuteBtn && mainMuteBtn.title === "Unmute Mic") {
+        mainMuteBtn.click(); // trigger unmute through the main button flow
+      } else if (voiceSystem?.ensureUnmuted) {
         voiceSystem.ensureUnmuted();
         voiceSystem.refreshRemoteAudioElements?.();
-      } else {
-        const mainMuteBtn = document.getElementById("mute-button");
-        if (mainMuteBtn && mainMuteBtn.title === "Unmute Mic") {
-          mainMuteBtn.click(); // trigger unmute
-        }
       }
 
       ensurePresentationOverlay().style.display = "flex";
@@ -271,9 +276,9 @@ export function setupImageSync({
 
       // Update mic button on overlay
       const micBtn = document.getElementById("presentation-mic-btn");
-      const mainMuteBtn = document.getElementById("mute-button");
-      if (micBtn && mainMuteBtn) {
-        const isNowMuted = mainMuteBtn.title === "Unmute Mic";
+      const mainMuteBtnForOverlay = document.getElementById("mute-button");
+      if (micBtn && mainMuteBtnForOverlay) {
+        const isNowMuted = mainMuteBtnForOverlay.title === "Unmute Mic";
         micBtn.textContent = isNowMuted ? "Unmute Mic" : "Mute Mic";
         micBtn.style.backgroundColor = isNowMuted ? "" : "#16a34a";
         micBtn.style.color = isNowMuted ? "" : "#fff";
