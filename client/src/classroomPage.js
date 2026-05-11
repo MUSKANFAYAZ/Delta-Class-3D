@@ -46,6 +46,18 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
       <main id="canvas-container" class="canvas-container dc-classroom-canvas"></main>
     </div>
 
+    <!-- Reload Warning Modal -->
+    <div id="reload-modal-backdrop" class="dc-modal-backdrop" style="display: none;">
+      <div class="dc-modal dc-reload-modal">
+        <h2>Reload Classroom?</h2>
+        <p class="dc-reload-warning">You may have to reload the classroom.</p>
+        <div class="dc-modal-actions">
+          <button type="button" class="dc-btn dc-btn-primary" id="confirm-reload-btn">Reload</button>
+          <button type="button" class="dc-btn dc-btn-ghost" id="cancel-reload-btn">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Exit Modal -->
     <div id="exit-modal-backdrop" class="dc-modal-backdrop" style="display: none;">
       <div class="dc-modal dc-exit-modal">
@@ -77,6 +89,9 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
   const deafenButton = document.getElementById("deafen-button");
   const modalBackdrop = document.getElementById("exit-modal-backdrop");
   const cancelExitBtn = document.getElementById("cancel-exit-btn");
+  const reloadModalBackdrop = document.getElementById("reload-modal-backdrop");
+  const confirmReloadBtn = document.getElementById("confirm-reload-btn");
+  const cancelReloadBtn = document.getElementById("cancel-reload-btn");
 
   if (!connectionStatus || !connectionBadge || !bandwidthPanel || !loadButton || !exitButton) {
     throw new Error("Missing classroom UI elements");
@@ -141,6 +156,31 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
       layoutShowButton.style.display = "none";
     });
   }
+
+  if (reloadModalBackdrop && confirmReloadBtn && cancelReloadBtn) {
+    confirmReloadBtn.addEventListener("click", () => {
+      reloadModalBackdrop.style.display = "none";
+      window.location.reload();
+    });
+
+    cancelReloadBtn.addEventListener("click", () => {
+      reloadModalBackdrop.style.display = "none";
+    });
+
+    reloadModalBackdrop.addEventListener("click", (e) => {
+      if (e.target === reloadModalBackdrop) {
+        reloadModalBackdrop.style.display = "none";
+      }
+    });
+  }
+
+  window.addEventListener("beforeunload", (e) => {
+    if (reloadModalBackdrop) {
+      e.preventDefault();
+      reloadModalBackdrop.style.display = "flex";
+      e.returnValue = "";
+    }
+  });
 
   function setStatus(message, badgeText, badgeConnected = false) {
     connectionStatus.textContent = message;

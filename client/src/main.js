@@ -18,7 +18,7 @@ let activeClassroomSocket = null;
 let activeClassroomLoader = null;
 let activeVoiceSystem = null;
 
-const CLASSROOM_REFRESH_WARNING = "You may have to load the class again. Do you really want to refresh?";
+const CLASSROOM_REFRESH_WARNING = "You may have to reload the classroom.";
 let classroomRefreshGuardEnabled = false;
 
 function handleClassroomBeforeUnload(event) {
