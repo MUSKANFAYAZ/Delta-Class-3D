@@ -134,6 +134,7 @@ export function mountDashboard(
     // Logout Action
     menu.querySelector("#dc-menu-logout").onclick = () => {
       localStorage.removeItem("delta-access-token");
+      localStorage.removeItem("delta-access-token-ts");
       localStorage.removeItem("delta-user-display");
       localStorage.removeItem("delta-user-role");
       localStorage.removeItem("delta-active-room");

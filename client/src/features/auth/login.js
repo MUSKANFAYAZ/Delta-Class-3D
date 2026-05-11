@@ -114,7 +114,10 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
     }
     try {
       const data = await api("/login", { method: "POST", body: { phone: p, password: pw, role: currentRole } });
-      if (data?.token) localStorage.setItem("delta-access-token", data.token);
+      if (data?.token) {
+        localStorage.setItem("delta-access-token", data.token);
+        localStorage.setItem("delta-access-token-ts", String(Date.now()));
+      }
       if (data?.user?.name) localStorage.setItem("delta-user-display", data.user.name);
       if (data?.user?.role) localStorage.setItem("delta-user-role", data.user.role);
       onDone?.();

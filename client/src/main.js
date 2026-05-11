@@ -87,6 +87,7 @@ function prefetchDashboardRouteChunks() {
     import("./features/dashboard/createClassroomPage.js").catch(() => {});
     import("./features/dashboard/joinClassroomPage.js").catch(() => {});
     import("./features/dashboard/roomPage.js").catch(() => {});
+    import("./features/profile/profilePage.js").catch(() => {});
     import("./classroomPage.js").catch(() => {});
     import("./startup/classroomLoader.js").catch(() => {});
     import("./config/runtimeSession.js").catch(() => {});
@@ -291,10 +292,39 @@ async function resolveExistingRooms() {
 }
 
 function parseHash() {
-  const raw = window.location.hash || "#/dashboard";
+  const raw = window.location.hash || "#/login";
   const noHash = raw.replace(/^#/, "");
   const [path, query = ""] = noHash.split("?");
   return { path, params: new URLSearchParams(query) };
+}
+
+// Session timestamp key used to enforce 24h expiry on client
+const TOKEN_TS_KEY = "delta-access-token-ts";
+const TOKEN_KEY = AUTH.tokenKey;
+
+function isSessionExpired() {
+  try {
+    const ts = Number(localStorage.getItem(TOKEN_TS_KEY) || "0");
+    if (!ts) return true;
+    const age = Date.now() - ts;
+    return age > 24 * 60 * 60 * 1000; // 24 hours
+  } catch {
+    return true;
+  }
+}
+
+function ensureSessionValidity() {
+  const token = getToken();
+  if (!token) return;
+  if (isSessionExpired()) {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(TOKEN_TS_KEY);
+    localStorage.removeItem("delta-user-display");
+    localStorage.removeItem("delta-user-role");
+    localStorage.removeItem("delta-active-room");
+    // Force navigation to login so user must re-login
+    window.location.hash = `/login?mode=login`;
+  }
 }
 
 function encodeNextPath(path) {
@@ -579,6 +609,27 @@ async function renderRoute() {
     return;
   }
 
+  if (path === "/profile") {
+    const { mountProfilePage } = await import("./features/profile/profilePage.js");
+    const currentRole = params.get("role") === "teacher" ? "teacher" : "student";
+
+    mountProfilePage(appRoot, {
+      api,
+      role: currentRole,
+      onBack: () => navigate(`/dashboard?role=${currentRole}`),
+      onCreateRequested: () => navigate("/create?role=teacher"),
+      onJoinRequested: () => navigate(`/join?role=${currentRole}`),
+      onLogout: () => {
+        localStorage.removeItem("delta-access-token");
+        localStorage.removeItem("delta-user-display");
+        localStorage.removeItem("delta-user-role");
+        localStorage.removeItem("delta-active-room");
+        navigate(`/login?role=${currentRole}&mode=login`);
+      },
+    });
+    return;
+  }
+
   // Dashboard must receive 'api' to handle the modular Delete button logic
   const { mountDashboard } = await import("./features/dashboard/dashboardPage.js");
   mountDashboard(appRoot, {
@@ -595,4 +646,6 @@ async function renderRoute() {
 }
 
 window.addEventListener("hashchange", renderRoute);
+// Enforce session validity on initial load
+ensureSessionValidity();
 renderRoute();
