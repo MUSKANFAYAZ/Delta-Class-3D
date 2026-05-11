@@ -18,6 +18,28 @@ let activeClassroomSocket = null;
 let activeClassroomLoader = null;
 let activeVoiceSystem = null;
 
+const CLASSROOM_REFRESH_WARNING = "You may have to load the class again. Do you really want to refresh?";
+let classroomRefreshGuardEnabled = false;
+
+function handleClassroomBeforeUnload(event) {
+  event.preventDefault();
+  // Most modern browsers show a generic message, but setting returnValue is required to trigger the prompt.
+  event.returnValue = CLASSROOM_REFRESH_WARNING;
+  return CLASSROOM_REFRESH_WARNING;
+}
+
+function enableClassroomRefreshGuard() {
+  if (classroomRefreshGuardEnabled) return;
+  window.addEventListener("beforeunload", handleClassroomBeforeUnload);
+  classroomRefreshGuardEnabled = true;
+}
+
+function disableClassroomRefreshGuard() {
+  if (!classroomRefreshGuardEnabled) return;
+  window.removeEventListener("beforeunload", handleClassroomBeforeUnload);
+  classroomRefreshGuardEnabled = false;
+}
+
 function getToken() {
   return localStorage.getItem(AUTH.tokenKey) || "";
 }
@@ -355,7 +377,12 @@ async function mountLegacyClassroom(params) {
 
 async function renderRoute() {
   const { path, params } = parseHash();
-  if (path !== "/classroom" && path !== "/room") {
+  const isClassroomRoute = path === "/classroom" || path === "/room";
+
+  if (isClassroomRoute) {
+    enableClassroomRefreshGuard();
+  } else {
+    disableClassroomRefreshGuard();
     cleanupActiveClassroomConnection();
   }
 
