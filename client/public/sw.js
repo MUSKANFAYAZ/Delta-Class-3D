@@ -1,4 +1,4 @@
-const CACHE_VERSION = "delta-class3d-v2";
+const CACHE_VERSION = "delta-class3d-v3";
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const CORE_ASSETS = ["/", "/index.html"];
 

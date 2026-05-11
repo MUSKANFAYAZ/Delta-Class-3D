@@ -237,10 +237,10 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
     panel.id = "blackboard-tools-root";
 
     Object.assign(panel.style, {
-      position: "absolute",
+      position: "fixed",
       right: "16px",
       top: "84px",
-      zIndex: "11",
+      zIndex: "10030",
       display: "flex",
       flexDirection: "column",
       alignItems: "stretch",
@@ -255,6 +255,9 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
       fontSize: "12px",
       fontWeight: "600",
       pointerEvents: "auto",
+      maxWidth: "min(320px, calc(100vw - 24px))",
+      maxHeight: "min(46vh, 360px)",
+      overflowY: "auto",
     });
 
     if (canWrite) {
@@ -388,7 +391,8 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
       panel.textContent = "Whiteboard view only";
     }
 
-    container.appendChild(panel);
+    const overlayHost = document.getElementById("app") || document.body;
+    overlayHost.appendChild(panel);
     return panel;
   }
 
@@ -396,18 +400,34 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
     if (!panel) return;
 
     const topbar = document.querySelector(".dc-room-topbar-shell");
-    const containerRect = container.getBoundingClientRect();
-    let safeTop = 84;
+    const bandwidthPanel = document.querySelector(".dc-bandwidth-panel");
+    let blockerBottom = 74;
 
     if (topbar) {
       const topbarRect = topbar.getBoundingClientRect();
-      // Keep tools panel below the classroom header even when header wraps on small screens.
-      safeTop = Math.max(safeTop, Math.round(topbarRect.bottom - containerRect.top + 10));
+      blockerBottom = Math.max(blockerBottom, Math.round(topbarRect.bottom));
     }
 
-    // Keep some breathing room from the viewport edge on small heights.
-    const maxTop = Math.max(16, window.innerHeight - 140);
-    panel.style.top = `${Math.min(safeTop, maxTop)}px`;
+    if (bandwidthPanel && !bandwidthPanel.hasAttribute("hidden")) {
+      const bandwidthRect = bandwidthPanel.getBoundingClientRect();
+      if (bandwidthRect.height > 0) {
+        blockerBottom = Math.max(blockerBottom, Math.round(bandwidthRect.bottom));
+      }
+    }
+
+    const preferredTop = blockerBottom + 10;
+    const requiredHeight = Math.min(panel.offsetHeight || 170, 240);
+    const availableHeight = window.innerHeight - preferredTop - 16;
+
+    if (availableHeight >= requiredHeight) {
+      panel.style.top = `${preferredTop}px`;
+      panel.style.bottom = "";
+    } else {
+      // Fallback for short windows: keep tools docked above bottom controls.
+      panel.style.top = "";
+      panel.style.bottom = "86px";
+    }
+
     panel.style.right = "16px";
   }
 
@@ -420,8 +440,15 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   };
 
   const topbar = document.querySelector(".dc-room-topbar-shell");
+  const bandwidthPanel = document.querySelector(".dc-bandwidth-panel");
   const topbarResizeObserver =
     topbar && typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(() => {
+          positionToolsPanel(toolsPanel);
+        })
+      : null;
+  const bandwidthResizeObserver =
+    bandwidthPanel && typeof ResizeObserver !== "undefined"
       ? new ResizeObserver(() => {
           positionToolsPanel(toolsPanel);
         })
@@ -429,6 +456,9 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
 
   if (topbarResizeObserver && topbar) {
     topbarResizeObserver.observe(topbar);
+  }
+  if (bandwidthResizeObserver && bandwidthPanel) {
+    bandwidthResizeObserver.observe(bandwidthPanel);
   }
 
   window.addEventListener("resize", onWindowResize);
@@ -457,6 +487,7 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
 
       window.removeEventListener("resize", onWindowResize);
       topbarResizeObserver?.disconnect();
+      bandwidthResizeObserver?.disconnect();
 
       pendingRemoteStrokes.length = 0;
       if (flushTimer) {
