@@ -30,7 +30,8 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
           <button id="classroom-exit-button" type="button" class="dc-btn dc-btn-ghost">
             ${role === "teacher" ? "Exit (Teacher)" : "Exit"}
           </button>
-          <button id="reload-button" type="button" class="dc-btn dc-btn-ghost">
+          <button id="reload-button" type="button" class="dc-btn dc-btn-ghost dc-reload-btn" title="Reload classroom (F5, Shift+F5, Ctrl/Cmd+R, Ctrl/Cmd+Shift+R)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px" aria-hidden="true"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.13-3.36L23 10"></path><path d="M20.49 15a9 9 0 0 1-14.13 3.36L1 14"></path></svg>
             Reload
           </button>
           <button id="layout-hide-button" type="button" class="dc-btn dc-btn-ghost dc-layout-toggle-btn">
@@ -189,9 +190,13 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
   // Note: reloads triggered via the browser UI (toolbar menu, close tab button)
   // cannot be intercepted without triggering the native beforeunload prompt.
   const handleReloadShortcut = (e) => {
-    const isF5 = e.key === "F5";
-    const isCtrlR = (e.key === "r" || e.key === "R") && (e.ctrlKey || e.metaKey);
-    if (isF5 || isCtrlR) {
+    const key = e.key;
+    const isF5 = key === "F5";
+    const isShiftF5 = isF5 && e.shiftKey;
+    const isCtrlR = (key === "r" || key === "R") && (e.ctrlKey || e.metaKey) && !e.shiftKey;
+    const isCtrlShiftR = (key === "r" || key === "R") && (e.ctrlKey || e.metaKey) && e.shiftKey;
+
+    if (isF5 || isShiftF5 || isCtrlR || isCtrlShiftR) {
       e.preventDefault();
       if (reloadModalBackdrop) reloadModalBackdrop.style.display = "flex";
     }
