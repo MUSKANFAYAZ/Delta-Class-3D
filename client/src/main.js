@@ -499,8 +499,14 @@ async function renderRoute() {
         if (!data?.exists) {
           return { ok: false, message: "Classroom code not found." };
         }
-        if (data?.teacherPresent === false) {
-          return { ok: false, message: "Class session is not started yet. Please wait for the teacher to enter the classroom." };
+        const joinResult = await api(`/classrooms/${encodeURIComponent(room)}/join`, {
+          method: "POST",
+        });
+        if (joinResult?.teacherPresent === false) {
+          localStorage.setItem(
+            "delta-dashboard-notice",
+            "Class added. Session has not started yet; wait for the teacher to enter the classroom.",
+          );
         }
         localStorage.setItem("delta-active-room", room);
         navigate(`/dashboard?role=${role}`);

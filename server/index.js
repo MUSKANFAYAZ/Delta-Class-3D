@@ -342,6 +342,52 @@ app.get("/auth/classrooms/:code", async (req, res) => {
   }
 });
 
+app.post("/auth/classrooms/:code/join", authMiddleware, async (req, res) => {
+  try {
+    const code = normalizeRoomCode(req.params.code);
+    if (!isValidRoomCode(code)) {
+      return res.status(400).json({ ok: false, message: "Invalid room code format" });
+    }
+
+    const userId = String(req.user?.sub || "");
+    const role = String(req.user?.role || "").toLowerCase();
+    if (!userId) {
+      return res.status(401).json({ ok: false, message: "Unauthorized" });
+    }
+
+    const classroom = await Classroom.findOne({ code });
+    if (!classroom) {
+      return res.status(404).json({ ok: false, message: "Classroom not found" });
+    }
+
+    if (role === "teacher") {
+      const isOwner = String(classroom.createdBy || "") === userId;
+      return res.json({ ok: true, code, joined: false, role: "teacher", canDelete: isOwner });
+    }
+
+    const assignments = classroom.studentAssignments instanceof Map
+      ? classroom.studentAssignments
+      : new Map(Object.entries(classroom.studentAssignments || {}));
+
+    if (!assignments.has(userId)) {
+      assignments.set(userId, -1);
+      classroom.studentAssignments = assignments;
+      await classroom.save();
+    }
+
+    return res.json({
+      ok: true,
+      code,
+      joined: true,
+      teacherPresent: Boolean(activeClassrooms.get(code)?.teacherPresent),
+      participants: (classroom.studentAssignments?.size || assignments.size || 0) + (classroom.teacherPositions?.size || 0),
+    });
+  } catch (error) {
+    console.error("[POST /auth/classrooms/:code/join] Error joining classroom:", error?.message || error, error?.stack);
+    return res.status(500).json({ ok: false, message: "Error joining classroom", detail: error?.message });
+  }
+});
+
 // Temporary debug endpoint to verify which MongoDB URI the server is using.
 // Enable by setting DEBUG_DB=true in the environment (do NOT leave enabled long-term).
 app.get("/auth/_debug/mongo", (req, res) => {
