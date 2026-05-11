@@ -174,6 +174,21 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
     });
   }
 
+  // Intercept common keyboard reload shortcuts (F5, Ctrl/Cmd+R) and show
+  // the app's custom reload modal instead of allowing an immediate reload.
+  // Note: reloads triggered via the browser UI (toolbar menu, close tab button)
+  // cannot be intercepted without triggering the native beforeunload prompt.
+  const handleReloadShortcut = (e) => {
+    const isF5 = e.key === "F5";
+    const isCtrlR = (e.key === "r" || e.key === "R") && (e.ctrlKey || e.metaKey);
+    if (isF5 || isCtrlR) {
+      e.preventDefault();
+      if (reloadModalBackdrop) reloadModalBackdrop.style.display = "flex";
+    }
+  };
+
+  window.addEventListener("keydown", handleReloadShortcut, { passive: false });
+
   function setStatus(message, badgeText, badgeConnected = false) {
     connectionStatus.textContent = message;
     connectionBadge.textContent = badgeText;
