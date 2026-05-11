@@ -30,6 +30,9 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
           <button id="classroom-exit-button" type="button" class="dc-btn dc-btn-ghost">
             ${role === "teacher" ? "Exit (Teacher)" : "Exit"}
           </button>
+          <button id="reload-button" type="button" class="dc-btn dc-btn-ghost">
+            Reload
+          </button>
           <button id="layout-hide-button" type="button" class="dc-btn dc-btn-ghost dc-layout-toggle-btn">
             Hide Layout
           </button>
@@ -83,6 +86,7 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
   const roomShell = appRoot.querySelector(".dc-room-shell");
   const loadButton = document.getElementById("load-classroom-button");
   const exitButton = document.getElementById("classroom-exit-button");
+  const reloadButton = document.getElementById("reload-button");
   const layoutHideButton = document.getElementById("layout-hide-button");
   const layoutShowButton = document.getElementById("layout-show-button");
   const muteButton = document.getElementById("mute-button");
@@ -171,6 +175,12 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
       if (e.target === reloadModalBackdrop) {
         reloadModalBackdrop.style.display = "none";
       }
+    });
+  }
+
+  if (reloadButton) {
+    reloadButton.addEventListener("click", () => {
+      if (reloadModalBackdrop) reloadModalBackdrop.style.display = "flex";
     });
   }
 
