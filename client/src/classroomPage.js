@@ -185,6 +185,19 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
     });
   }
 
+  // Show the app's styled reload overlay when a native beforeunload is triggered
+  // This runs alongside the native browser dialog; the native dialog cannot
+  // be styled, but this ensures the page behind it matches our UI colors.
+  window.addEventListener("beforeunload", (e) => {
+    if (reloadModalBackdrop) {
+      try {
+        reloadModalBackdrop.style.display = "flex";
+      } catch (err) {
+        // ignore errors during unload
+      }
+    }
+  });
+
   // Intercept common keyboard reload shortcuts (F5, Ctrl/Cmd+R) and show
   // the app's custom reload modal instead of allowing an immediate reload.
   // Note: reloads triggered via the browser UI (toolbar menu, close tab button)
