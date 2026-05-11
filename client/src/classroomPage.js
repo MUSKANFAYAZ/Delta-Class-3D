@@ -30,6 +30,9 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
           <button id="classroom-exit-button" type="button" class="dc-btn dc-btn-ghost">
             ${role === "teacher" ? "Exit (Teacher)" : "Exit"}
           </button>
+          <button id="layout-hide-button" type="button" class="dc-btn dc-btn-ghost dc-layout-toggle-btn">
+            Hide Layout
+          </button>
         </div>
       </header>
       <section id="bandwidth-panel" class="bandwidth-panel dc-bandwidth-panel">
@@ -37,6 +40,9 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
         <p class="dc-muted dc-small">Tap to load the 3D scene. On slow connections, it will not start until you choose.</p>
         <button id="load-classroom-button" type="button" class="dc-btn dc-btn-primary dc-btn-large">Load 3D classroom</button>
       </section>
+      <button id="layout-show-button" type="button" class="dc-btn dc-btn-secondary dc-layout-show-btn" style="display: none;">
+        Show Layout
+      </button>
       <main id="canvas-container" class="canvas-container dc-classroom-canvas"></main>
     </div>
 
@@ -62,8 +68,11 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
   const connectionStatus = document.getElementById("connection-status");
   const connectionBadge = document.getElementById("connection-badge");
   const bandwidthPanel = document.getElementById("bandwidth-panel");
+  const roomShell = appRoot.querySelector(".dc-room-shell");
   const loadButton = document.getElementById("load-classroom-button");
   const exitButton = document.getElementById("classroom-exit-button");
+  const layoutHideButton = document.getElementById("layout-hide-button");
+  const layoutShowButton = document.getElementById("layout-show-button");
   const muteButton = document.getElementById("mute-button");
   const deafenButton = document.getElementById("deafen-button");
   const modalBackdrop = document.getElementById("exit-modal-backdrop");
@@ -119,6 +128,18 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
         });
       }
     }
+  }
+
+  if (roomShell && layoutHideButton && layoutShowButton) {
+    layoutHideButton.addEventListener("click", () => {
+      roomShell.classList.add("dc-room-layout-hidden");
+      layoutShowButton.style.display = "inline-flex";
+    });
+
+    layoutShowButton.addEventListener("click", () => {
+      roomShell.classList.remove("dc-room-layout-hidden");
+      layoutShowButton.style.display = "none";
+    });
   }
 
   function setStatus(message, badgeText, badgeConnected = false) {

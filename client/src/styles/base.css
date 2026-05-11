@@ -284,6 +284,26 @@ body {
   flex-wrap: wrap;
 }
 
+.dc-layout-toggle-btn {
+  min-height: 38px;
+  padding: 6px 12px;
+}
+
+.dc-layout-show-btn {
+  position: fixed;
+  right: 14px;
+  top: 14px;
+  z-index: 10040;
+  min-height: 38px;
+  padding: 6px 12px;
+  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.28);
+}
+
+.dc-room-shell.dc-room-layout-hidden .dc-room-topbar-shell,
+.dc-room-shell.dc-room-layout-hidden .dc-bandwidth-panel {
+  display: none !important;
+}
+
 @media (max-width: 768px) {
   .dc-room-shell {
     overflow: hidden;
@@ -335,6 +355,11 @@ body {
     width: 100%;
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+
+  .dc-layout-show-btn {
+    right: 10px;
+    top: 10px;
   }
 }
 
