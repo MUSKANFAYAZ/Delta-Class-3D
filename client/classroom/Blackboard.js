@@ -279,7 +279,7 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
       for (const color of PEN_COLORS) {
         const colorButton = document.createElement("button");
         colorButton.type = "button";
-        colorButton.title = color;
+        colorButton.setAttribute("data-tooltip", color);
         Object.assign(colorButton.style, {
           width: "20px",
           height: "20px",

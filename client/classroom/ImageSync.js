@@ -82,7 +82,7 @@ export function setupImageSync({
           return voiceSystem.isMuted;
         }
         const mainMuteBtn = document.getElementById("mute-button");
-        return mainMuteBtn ? mainMuteBtn.title === "Unmute Mic" : true;
+        return mainMuteBtn ? mainMuteBtn.getAttribute("data-tooltip") === "Unmute Mic" : true;
       };
       
       const updateMicBtnState = () => {
@@ -264,7 +264,7 @@ export function setupImageSync({
       // Auto-unmute mic when sharing
       const voiceSystem = window.activeVoiceSystem;
       const mainMuteBtn = document.getElementById("mute-button");
-      if (mainMuteBtn && mainMuteBtn.title === "Unmute Mic") {
+      if (mainMuteBtn && mainMuteBtn.getAttribute("data-tooltip") === "Unmute Mic") {
         mainMuteBtn.click(); // trigger unmute through the main button flow
       } else if (voiceSystem?.ensureUnmuted) {
         voiceSystem.ensureUnmuted();
@@ -278,7 +278,7 @@ export function setupImageSync({
       const micBtn = document.getElementById("presentation-mic-btn");
       const mainMuteBtnForOverlay = document.getElementById("mute-button");
       if (micBtn && mainMuteBtnForOverlay) {
-        const isNowMuted = mainMuteBtnForOverlay.title === "Unmute Mic";
+        const isNowMuted = mainMuteBtnForOverlay.getAttribute("data-tooltip") === "Unmute Mic";
         micBtn.textContent = isNowMuted ? "Unmute Mic" : "Mute Mic";
         micBtn.style.backgroundColor = isNowMuted ? "" : "#16a34a";
         micBtn.style.color = isNowMuted ? "" : "#fff";
