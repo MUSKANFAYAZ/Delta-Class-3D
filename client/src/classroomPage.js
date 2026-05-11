@@ -4,40 +4,62 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
   }
 
   appRoot.innerHTML = `
-    <div class="dc-root dc-room-shell" style="overflow: hidden;">
+    <div class="dc-root dc-room-shell">
       <div class="dc-grid-bg" aria-hidden="true"></div>
-      <header class="dc-topbar" style="position: absolute; top: 12px; left: 12px; right: 12px; z-index: 20;">
+      <header class="dc-topbar dc-room-topbar-shell">
         <div>
-          <h1 class="dc-brand" style="text-align: left; font-size: 20px; margin: 0;">DeltaClass3D</h1>
-          <p id="connection-status" class="dc-muted dc-small" style="margin: 3px 0 0;">Preparing lightweight classroom shell.</p>
+          <h1 class="dc-brand dc-room-brand">DeltaClass3D</h1>
+          <p id="connection-status" class="dc-muted dc-small dc-room-status">Preparing lightweight classroom shell.</p>
         </div>
         <div class="dc-topbar-actions">
           <span id="connection-badge" class="connection">Starting</span>
-          <div class="voice-controls item-group" style="display: flex; gap: 8px;">
+          <div class="voice-controls item-group dc-room-voice-controls">
             ${role === "student" ? `
-              <button id="deafen-button" type="button" class="dc-btn dc-btn-ghost dc-icon-btn" title="Mute Teacher" style="padding: 0; display: flex; align-items: center; justify-content: center;">
+                <button id="deafen-button" type="button" class="dc-btn dc-btn-ghost dc-icon-btn dc-room-icon-btn" data-tooltip="Mute Teacher">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="icon-headph"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path></svg>
               </button>
             ` : `
-              <button id="presentation-button" type="button" class="dc-btn dc-btn-ghost dc-icon-btn" title="Start Presentation" style="padding: 0; display: flex; align-items: center; justify-content: center;">
+              <button id="presentation-button" type="button" class="dc-btn dc-btn-ghost dc-icon-btn dc-room-icon-btn" data-tooltip="Start Presentation">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
               </button>
             `}
-            <button id="mute-button" type="button" class="dc-btn dc-btn-ghost dc-icon-btn" title="Unmute Mic" style="padding: 0; display: flex; align-items: center; justify-content: center;">
+            <button id="mute-button" type="button" class="dc-btn dc-btn-ghost dc-icon-btn dc-room-icon-btn" data-tooltip="Unmute Mic">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="icon-mic-off"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
             </button>
           </div>
           <button id="classroom-exit-button" type="button" class="dc-btn dc-btn-ghost">
             ${role === "teacher" ? "Exit (Teacher)" : "Exit"}
           </button>
+          <button id="reload-button" type="button" class="dc-btn dc-btn-ghost dc-reload-btn" data-tooltip="Reload classroom (F5, Shift+F5, Ctrl/Cmd+R, Ctrl/Cmd+Shift+R)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px" aria-hidden="true"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.13-3.36L23 10"></path><path d="M20.49 15a9 9 0 0 1-14.13 3.36L1 14"></path></svg>
+            Reload
+          </button>
+          <button id="layout-hide-button" type="button" class="dc-btn dc-btn-ghost dc-layout-toggle-btn">
+            Hide Layout
+          </button>
         </div>
       </header>
-      <section id="bandwidth-panel" class="bandwidth-panel" style="position: absolute; left: 12px; top: 88px; z-index: 20; width: min(320px, calc(100% - 24px)); background: var(--dc-card); border: 1px solid var(--dc-border); border-radius: 14px; padding: 14px; display: grid; gap: 8px; box-shadow: var(--dc-shadow);">
+      <section id="bandwidth-panel" class="bandwidth-panel dc-bandwidth-panel">
         <label class="dc-field-label">3D classroom</label>
         <p class="dc-muted dc-small">Tap to load the 3D scene. On slow connections, it will not start until you choose.</p>
         <button id="load-classroom-button" type="button" class="dc-btn dc-btn-primary dc-btn-large">Load 3D classroom</button>
       </section>
-      <main id="canvas-container" class="canvas-container" style="position: absolute; inset: 0; z-index: 10;"></main>
+      <button id="layout-show-button" type="button" class="dc-btn dc-btn-secondary dc-layout-show-btn" style="display: none;">
+        Show Layout
+      </button>
+      <main id="canvas-container" class="canvas-container dc-classroom-canvas"></main>
+    </div>
+
+    <!-- Reload Warning Modal -->
+    <div id="reload-modal-backdrop" class="dc-modal-backdrop" style="display: none;">
+      <div class="dc-modal dc-reload-modal">
+        <h2>Reload Classroom?</h2>
+        <p class="dc-reload-warning">You may have to reload the classroom.</p>
+        <div class="dc-modal-actions">
+          <button type="button" class="dc-btn dc-btn-primary" id="confirm-reload-btn">Reload</button>
+          <button type="button" class="dc-btn dc-btn-ghost" id="cancel-reload-btn">Cancel</button>
+        </div>
+      </div>
     </div>
 
     <!-- Exit Modal -->
@@ -62,12 +84,19 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
   const connectionStatus = document.getElementById("connection-status");
   const connectionBadge = document.getElementById("connection-badge");
   const bandwidthPanel = document.getElementById("bandwidth-panel");
+  const roomShell = appRoot.querySelector(".dc-room-shell");
   const loadButton = document.getElementById("load-classroom-button");
   const exitButton = document.getElementById("classroom-exit-button");
+  const reloadButton = document.getElementById("reload-button");
+  const layoutHideButton = document.getElementById("layout-hide-button");
+  const layoutShowButton = document.getElementById("layout-show-button");
   const muteButton = document.getElementById("mute-button");
   const deafenButton = document.getElementById("deafen-button");
   const modalBackdrop = document.getElementById("exit-modal-backdrop");
   const cancelExitBtn = document.getElementById("cancel-exit-btn");
+  const reloadModalBackdrop = document.getElementById("reload-modal-backdrop");
+  const confirmReloadBtn = document.getElementById("confirm-reload-btn");
+  const cancelReloadBtn = document.getElementById("cancel-reload-btn");
 
   if (!connectionStatus || !connectionBadge || !bandwidthPanel || !loadButton || !exitButton) {
     throw new Error("Missing classroom UI elements");
@@ -120,6 +149,73 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
       }
     }
   }
+
+  if (roomShell && layoutHideButton && layoutShowButton) {
+    layoutHideButton.addEventListener("click", () => {
+      roomShell.classList.add("dc-room-layout-hidden");
+      layoutShowButton.style.display = "inline-flex";
+    });
+
+    layoutShowButton.addEventListener("click", () => {
+      roomShell.classList.remove("dc-room-layout-hidden");
+      layoutShowButton.style.display = "none";
+    });
+  }
+
+  if (reloadModalBackdrop && confirmReloadBtn && cancelReloadBtn) {
+    confirmReloadBtn.addEventListener("click", () => {
+      reloadModalBackdrop.style.display = "none";
+      window.location.reload();
+    });
+
+    cancelReloadBtn.addEventListener("click", () => {
+      reloadModalBackdrop.style.display = "none";
+    });
+
+    reloadModalBackdrop.addEventListener("click", (e) => {
+      if (e.target === reloadModalBackdrop) {
+        reloadModalBackdrop.style.display = "none";
+      }
+    });
+  }
+
+  if (reloadButton) {
+    reloadButton.addEventListener("click", () => {
+      if (reloadModalBackdrop) reloadModalBackdrop.style.display = "flex";
+    });
+  }
+
+  // Show the app's styled reload overlay when a native beforeunload is triggered
+  // This runs alongside the native browser dialog; the native dialog cannot
+  // be styled, but this ensures the page behind it matches our UI colors.
+  window.addEventListener("beforeunload", (e) => {
+    if (reloadModalBackdrop) {
+      try {
+        reloadModalBackdrop.style.display = "flex";
+      } catch (err) {
+        // ignore errors during unload
+      }
+    }
+  });
+
+  // Intercept common keyboard reload shortcuts (F5, Ctrl/Cmd+R) and show
+  // the app's custom reload modal instead of allowing an immediate reload.
+  // Note: reloads triggered via the browser UI (toolbar menu, close tab button)
+  // cannot be intercepted without triggering the native beforeunload prompt.
+  const handleReloadShortcut = (e) => {
+    const key = e.key;
+    const isF5 = key === "F5";
+    const isShiftF5 = isF5 && e.shiftKey;
+    const isCtrlR = (key === "r" || key === "R") && (e.ctrlKey || e.metaKey) && !e.shiftKey;
+    const isCtrlShiftR = (key === "r" || key === "R") && (e.ctrlKey || e.metaKey) && e.shiftKey;
+
+    if (isF5 || isShiftF5 || isCtrlR || isCtrlShiftR) {
+      e.preventDefault();
+      if (reloadModalBackdrop) reloadModalBackdrop.style.display = "flex";
+    }
+  };
+
+  window.addEventListener("keydown", handleReloadShortcut, { passive: false });
 
   function setStatus(message, badgeText, badgeConnected = false) {
     connectionStatus.textContent = message;

@@ -574,6 +574,95 @@
   z-index: 1;
 }
 
+@media (max-width: 768px) {
+  .dc-dashboard {
+    padding: 10px 10px 92px;
+  }
+
+  .dc-dashboard--fullscreen {
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .dc-topbar,
+  .dc-room-topbar,
+  .dc-hero,
+  .dc-cards-wrap,
+  .dc-join-card {
+    border-radius: 14px;
+  }
+
+  .dc-topbar,
+  .dc-room-topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dc-topbar-actions,
+  .dc-room-meta {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .dc-brand {
+    text-align: left;
+  }
+
+  .dc-cards-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dc-room-card {
+    padding-right: 14px;
+  }
+
+  .dc-room-card:hover {
+    transform: none;
+  }
+
+  .dc-user-menu,
+  .dc-notify-pop {
+    width: min(100%, calc(100vw - 20px));
+    right: 0;
+    left: 0;
+  }
+
+  .dc-join-shell {
+    padding: 12px;
+  }
+
+  .dc-join-card {
+    padding: 18px 14px;
+  }
+
+  .dc-code-input {
+    font-size: 18px;
+    letter-spacing: 0.06em;
+  }
+
+  .dc-code-output {
+    word-break: break-word;
+  }
+
+  .dc-btn {
+    min-height: 44px;
+  }
+
+  .dc-icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  .dc-ticker-wrap {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dc-ticker {
+    mask-image: none;
+  }
+}
+
 .dc-join-card {
   width: min(560px, 100%);
   background: rgba(255, 255, 255, 0.95);
@@ -613,6 +702,65 @@
   height: 100%;
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+@media (max-width: 768px) {
+  .dc-room-shell {
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  .dc-room-topbar {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+
+  .dc-room-topbar .voice-controls {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .dc-room-topbar .dc-btn,
+  .dc-room-topbar .dc-icon-btn {
+    min-height: 44px;
+  }
+
+  .dc-room-topbar .dc-room-meta {
+    gap: 8px;
+  }
+
+  .dc-room-code {
+    word-break: break-word;
+  }
+
+  .dc-room-role {
+    white-space: nowrap;
+  }
+
+  .dc-classroom-shell .canvas-container {
+    min-height: 100vh;
+  }
+
+  .dc-fab-doubt {
+    right: 12px;
+    bottom: 12px;
+    width: 48px;
+    height: 48px;
+  }
+
+  .dc-doubts-panel {
+    right: 12px;
+    bottom: 76px;
+    width: calc(100vw - 24px);
+    max-height: 60vh;
+  }
+
+  .dc-modal {
+    width: calc(100vw - 24px);
+    padding: 18px;
+  }
 }
 
 .dc-room-topbar {

@@ -32,6 +32,47 @@ body {
   color: #0f172a;
 }
 
+@media (max-width: 768px) {
+  body {
+    overflow-x: hidden;
+  }
+
+  .shell {
+    height: auto;
+    min-height: 100%;
+    overflow: auto;
+  }
+
+  .topbar {
+    position: sticky;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    margin: 8px;
+    padding: 10px 12px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .controls {
+    position: static;
+    top: auto;
+    left: auto;
+    width: calc(100% - 16px);
+    margin: 8px;
+  }
+
+  .canvas-container {
+    min-height: 100vh;
+  }
+}
+
 .shell {
   position: relative;
   width: 100%;
@@ -161,6 +202,247 @@ body {
 .canvas-container {
   width: 100%;
   height: 100%;
+}
+
+.dc-room-shell {
+  overflow: hidden;
+}
+
+.dc-room-topbar-shell {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 20;
+}
+
+.dc-room-brand {
+  text-align: left;
+  font-size: 20px;
+  margin: 0;
+}
+
+.dc-room-status {
+  margin: 3px 0 0;
+}
+
+.dc-room-voice-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.dc-room-icon-btn {
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dc-bandwidth-panel {
+  position: absolute;
+  left: 12px;
+  top: 88px;
+  z-index: 20;
+  width: min(320px, calc(100% - 24px));
+  background: var(--dc-card);
+  border: 1px solid var(--dc-border);
+  border-radius: 14px;
+  padding: 14px;
+  display: grid;
+  gap: 8px;
+  box-shadow: var(--dc-shadow);
+}
+
+.dc-classroom-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+}
+
+.dc-room-exit-backdrop {
+  z-index: 9999;
+  align-items: center;
+  justify-content: center;
+}
+
+.dc-room-exit-modal {
+  text-align: center;
+}
+
+.dc-room-exit-title {
+  margin: 0 0 8px;
+  color: #0f172a;
+}
+
+.dc-room-exit-copy {
+  margin: 0 0 16px;
+  color: #0f172a;
+}
+
+.dc-room-exit-actions {
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.dc-reload-modal {
+  text-align: center;
+}
+
+.dc-reload-warning {
+  margin: 0 0 16px;
+  color: #0f172a;
+  font-size: 15px;
+}
+
+/* Prominent reload button used in the classroom topbar */
+.dc-reload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: linear-gradient(145deg, #fff, #f3f4f6);
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  color: #0f172a;
+  font-weight: 600;
+  box-shadow: 0 6px 16px rgba(2,6,23,0.08);
+}
+
+.dc-reload-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 28px rgba(2,6,23,0.12);
+}
+
+@media (max-width: 768px) {
+  .dc-reload-btn {
+    min-width: 88px;
+  }
+}
+
+/* Custom tooltip using data-tooltip attribute */
+[data-tooltip] {
+  position: relative;
+  cursor: pointer;
+}
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 10px); /* place below the element */
+  right: 0; /* align tooltip's right edge with element's right edge */
+  background: rgba(15, 23, 42, 0.95);
+  color: #f8fafc;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(2,6,23,0.18);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  z-index: 10050;
+}
+
+[data-tooltip]:hover::after {
+  opacity: 1;
+  transform: translateY(-4px); /* slight lift */
+}
+
+[data-tooltip]::before {
+  content: "";
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 10px; /* position arrow near the right edge */
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 6px solid rgba(15, 23, 42, 0.95);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+[data-tooltip]:hover::before {
+  opacity: 1;
+}
+
+.dc-layout-toggle-btn {
+  min-height: 38px;
+  padding: 6px 12px;
+}
+
+.dc-layout-show-btn {
+  position: fixed;
+  right: 14px;
+  top: 14px;
+  z-index: 10040;
+  min-height: 38px;
+  padding: 6px 12px;
+  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.28);
+}
+
+.dc-room-shell.dc-room-layout-hidden .dc-room-topbar-shell,
+.dc-room-shell.dc-room-layout-hidden .dc-bandwidth-panel {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  .dc-room-shell {
+    overflow: hidden;
+    min-height: 100vh;
+  }
+
+  .dc-room-topbar-shell {
+    position: sticky;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    margin: 8px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .dc-room-brand {
+    font-size: 18px;
+  }
+
+  .dc-room-voice-controls {
+    flex-wrap: wrap;
+  }
+
+  .dc-room-icon-btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .dc-bandwidth-panel {
+    position: static;
+    width: calc(100% - 16px);
+    margin: 0 8px 8px;
+  }
+
+  .dc-classroom-canvas {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+  }
+
+  .dc-room-exit-modal {
+    width: calc(100vw - 24px);
+    padding: 18px;
+  }
+
+  .dc-room-topbar-shell .dc-topbar-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .dc-layout-show-btn {
+    right: 10px;
+    top: 10px;
+  }
 }
 
 /* ========== Delta Class 3D — blue theme (dashboard + auth only) ========== */
@@ -346,6 +628,31 @@ body {
   margin: 0;
   padding-left: 18px;
   font-size: 13px;
+}
+
+/* Icon sizing for better mobile visibility */
+.dc-icon-btn,
+.dc-room-icon-btn {
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dc-icon-btn svg,
+.dc-room-icon-btn svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* Extra-large icons on very small phones */
+@media (max-width: 480px) {
+  .dc-icon-btn svg,
+  .dc-room-icon-btn svg {
+    width: 28px;
+    height: 28px;
+  }
 }
 
 

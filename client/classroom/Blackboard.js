@@ -237,10 +237,10 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
     panel.id = "blackboard-tools-root";
 
     Object.assign(panel.style, {
-      position: "absolute",
+      position: "fixed",
       right: "16px",
       top: "84px",
-      zIndex: "11",
+      zIndex: "10030",
       display: "flex",
       flexDirection: "column",
       alignItems: "stretch",
@@ -255,6 +255,9 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
       fontSize: "12px",
       fontWeight: "600",
       pointerEvents: "auto",
+      maxWidth: "min(320px, calc(100vw - 24px))",
+      maxHeight: "min(46vh, 360px)",
+      overflowY: "auto",
     });
 
     if (canWrite) {
@@ -276,7 +279,7 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
       for (const color of PEN_COLORS) {
         const colorButton = document.createElement("button");
         colorButton.type = "button";
-        colorButton.title = color;
+        colorButton.setAttribute("data-tooltip", color);
         Object.assign(colorButton.style, {
           width: "20px",
           height: "20px",
@@ -388,12 +391,85 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
       panel.textContent = "Whiteboard view only";
     }
 
-    container.appendChild(panel);
+    const overlayHost = document.getElementById("app") || document.body;
+    overlayHost.appendChild(panel);
     return panel;
+  }
+
+  function positionToolsPanel(panel) {
+    if (!panel) return;
+
+    const topbar = document.querySelector(".dc-room-topbar-shell");
+    const bandwidthPanel = document.querySelector(".dc-bandwidth-panel");
+
+    let blockerBottom = 72;
+    if (topbar) {
+      const rect = topbar.getBoundingClientRect();
+      blockerBottom = Math.max(blockerBottom, Math.round(rect.bottom));
+    }
+    if (bandwidthPanel && !bandwidthPanel.hasAttribute("hidden")) {
+      const rect = bandwidthPanel.getBoundingClientRect();
+      if (rect.height > 0) {
+        blockerBottom = Math.max(blockerBottom, Math.round(rect.bottom));
+      }
+    }
+
+    const preferredTop = blockerBottom + 10;
+    const compact = window.innerWidth <= 760;
+    const estimatedHeight = compact ? Math.min(panel.offsetHeight || 180, 220) : Math.min(panel.offsetHeight || 220, 300);
+    const enoughSpaceAtTop = window.innerHeight - preferredTop - 86 >= estimatedHeight;
+
+    if (enoughSpaceAtTop) {
+      panel.style.top = `${preferredTop}px`;
+      panel.style.bottom = "";
+
+      if (compact) {
+        panel.style.left = "";
+        panel.style.right = "12px";
+        panel.style.maxWidth = "min(300px, calc(100vw - 24px))";
+        panel.style.maxHeight = "min(34vh, 240px)";
+      } else {
+        panel.style.left = "";
+        panel.style.right = "16px";
+        panel.style.maxWidth = "min(320px, calc(100vw - 24px))";
+        panel.style.maxHeight = "min(46vh, 360px)";
+      }
+    } else {
+      // Short viewport fallback to keep it visible above camera controls.
+      panel.style.top = "";
+      panel.style.bottom = compact ? "82px" : "94px";
+      panel.style.left = "";
+      panel.style.right = compact ? "12px" : "16px";
+      panel.style.maxWidth = compact ? "min(300px, calc(100vw - 24px))" : "min(320px, calc(100vw - 24px))";
+      panel.style.maxHeight = compact ? "min(34vh, 240px)" : "min(42vh, 320px)";
+    }
   }
 
   clearBoard(false);
   const toolsPanel = buildPanel();
+  positionToolsPanel(toolsPanel);
+
+  const onWindowResize = () => {
+    positionToolsPanel(toolsPanel);
+  };
+
+  const topbar = document.querySelector(".dc-room-topbar-shell");
+  const bandwidthPanel = document.querySelector(".dc-bandwidth-panel");
+  const panelResizeObserver =
+    typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(() => {
+          positionToolsPanel(toolsPanel);
+        })
+      : null;
+
+  if (panelResizeObserver && topbar) {
+    panelResizeObserver.observe(topbar);
+  }
+  if (panelResizeObserver && bandwidthPanel) {
+    panelResizeObserver.observe(bandwidthPanel);
+  }
+
+  window.addEventListener("resize", onWindowResize);
 
   if (canWrite) {
     renderer.domElement.addEventListener("pointerdown", onPointerDown, { passive: true });
@@ -416,6 +492,9 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
       socket.off("blackboard-stroke", onBlackboardStroke);
       socket.off("blackboard-clear", onBlackboardClear);
       socket.off("blackboard-snapshot", onBlackboardSnapshot);
+
+      window.removeEventListener("resize", onWindowResize);
+      panelResizeObserver?.disconnect();
 
       pendingRemoteStrokes.length = 0;
       if (flushTimer) {

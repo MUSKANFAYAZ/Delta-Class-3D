@@ -257,21 +257,38 @@ app.post("/auth/classrooms", authMiddleware, async (req, res) => {
 
 app.get("/auth/classrooms", authMiddleware, async (req, res) => {
   try {
-    if (DEBUG_LOGS) console.log(`[GET /auth/classrooms] User: ${req.user?.sub}, Role: ${req.user?.role}`);
+    const userId = String(req.user?.sub || "");
+    const role = String(req.user?.role || "");
     
-    const classrooms = await Classroom.find({})
-      .sort({ createdAt: -1 })
-      .limit(100)
-      .lean();
+    if (DEBUG_LOGS) console.log(`[GET /auth/classrooms] User: ${userId}, Role: ${role}`);
+    
+    let classrooms;
+    
+    if (role === "teacher") {
+      // Teachers see only classrooms they created
+      classrooms = await Classroom.find({ createdBy: userId })
+        .sort({ createdAt: -1 })
+        .limit(100)
+        .lean();
+    } else {
+      // Students see all classrooms, but filter to those they're assigned to
+      const allClassrooms = await Classroom.find({})
+        .sort({ createdAt: -1 })
+        .limit(100)
+        .lean();
+      
+      classrooms = allClassrooms.filter((classroom) => {
+        const studentAssignmentKeys = Object.keys(classroom.studentAssignments || {});
+        return studentAssignmentKeys.includes(userId);
+      });
+    }
 
-    if (DEBUG_LOGS) console.log(`[GET /auth/classrooms] Found ${classrooms.length} classrooms in DB`);
+    if (DEBUG_LOGS) console.log(`[GET /auth/classrooms] Found ${classrooms.length} classrooms`);
 
     return res.json({
       classrooms: classrooms.map((classroom) => {
         const code = String(classroom.code || "").toLowerCase();
         const activeSession = activeClassrooms.get(code);
-        const requesterId = String(req.user?.sub || "");
-        const isTeacher = String(req.user?.role || "") === "teacher";
         const hasCreator = Boolean(classroom.createdBy);
         return {
           code,
@@ -282,7 +299,7 @@ app.get("/auth/classrooms", authMiddleware, async (req, res) => {
           createdAt: classroom.createdAt || classroom.created_at || null,
           teacherPresent: Boolean(activeSession?.teacherPresent),
           participants: (classroom.studentAssignments?.size || 0) + (classroom.teacherPositions?.size || 0),
-          canDelete: (hasCreator && String(classroom.createdBy || "") === requesterId) || (!hasCreator && isTeacher),
+          canDelete: (hasCreator && String(classroom.createdBy || "") === userId) || (!hasCreator && role === "teacher"),
         };
       }),
     });
@@ -322,6 +339,52 @@ app.get("/auth/classrooms/:code", async (req, res) => {
   } catch (error) {
     console.error("Error fetching classroom:", error);
     res.status(500).json({ exists: false, message: "Error fetching classroom" });
+  }
+});
+
+app.post("/auth/classrooms/:code/join", authMiddleware, async (req, res) => {
+  try {
+    const code = normalizeRoomCode(req.params.code);
+    if (!isValidRoomCode(code)) {
+      return res.status(400).json({ ok: false, message: "Invalid room code format" });
+    }
+
+    const userId = String(req.user?.sub || "");
+    const role = String(req.user?.role || "").toLowerCase();
+    if (!userId) {
+      return res.status(401).json({ ok: false, message: "Unauthorized" });
+    }
+
+    const classroom = await Classroom.findOne({ code });
+    if (!classroom) {
+      return res.status(404).json({ ok: false, message: "Classroom not found" });
+    }
+
+    if (role === "teacher") {
+      const isOwner = String(classroom.createdBy || "") === userId;
+      return res.json({ ok: true, code, joined: false, role: "teacher", canDelete: isOwner });
+    }
+
+    const assignments = classroom.studentAssignments instanceof Map
+      ? classroom.studentAssignments
+      : new Map(Object.entries(classroom.studentAssignments || {}));
+
+    if (!assignments.has(userId)) {
+      assignments.set(userId, -1);
+      classroom.studentAssignments = assignments;
+      await classroom.save();
+    }
+
+    return res.json({
+      ok: true,
+      code,
+      joined: true,
+      teacherPresent: Boolean(activeClassrooms.get(code)?.teacherPresent),
+      participants: (classroom.studentAssignments?.size || assignments.size || 0) + (classroom.teacherPositions?.size || 0),
+    });
+  } catch (error) {
+    console.error("[POST /auth/classrooms/:code/join] Error joining classroom:", error?.message || error, error?.stack);
+    return res.status(500).json({ ok: false, message: "Error joining classroom", detail: error?.message });
   }
 });
 
