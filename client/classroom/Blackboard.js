@@ -238,8 +238,8 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
 
     Object.assign(panel.style, {
       position: "fixed",
-      right: "16px",
-      top: "84px",
+      left: "16px",
+      bottom: "96px",
       zIndex: "10030",
       display: "flex",
       flexDirection: "column",
@@ -255,7 +255,7 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
       fontSize: "12px",
       fontWeight: "600",
       pointerEvents: "auto",
-      maxWidth: "min(320px, calc(100vw - 24px))",
+      maxWidth: "min(340px, calc(100vw - 24px))",
       maxHeight: "min(46vh, 360px)",
       overflowY: "auto",
     });
@@ -399,36 +399,20 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   function positionToolsPanel(panel) {
     if (!panel) return;
 
-    const topbar = document.querySelector(".dc-room-topbar-shell");
-    const bandwidthPanel = document.querySelector(".dc-bandwidth-panel");
-    let blockerBottom = 74;
-
-    if (topbar) {
-      const topbarRect = topbar.getBoundingClientRect();
-      blockerBottom = Math.max(blockerBottom, Math.round(topbarRect.bottom));
-    }
-
-    if (bandwidthPanel && !bandwidthPanel.hasAttribute("hidden")) {
-      const bandwidthRect = bandwidthPanel.getBoundingClientRect();
-      if (bandwidthRect.height > 0) {
-        blockerBottom = Math.max(blockerBottom, Math.round(bandwidthRect.bottom));
-      }
-    }
-
-    const preferredTop = blockerBottom + 10;
-    const requiredHeight = Math.min(panel.offsetHeight || 170, 240);
-    const availableHeight = window.innerHeight - preferredTop - 16;
-
-    if (availableHeight >= requiredHeight) {
-      panel.style.top = `${preferredTop}px`;
-      panel.style.bottom = "";
-    } else {
-      // Fallback for short windows: keep tools docked above bottom controls.
-      panel.style.top = "";
+    const compact = window.innerWidth <= 760;
+    if (compact) {
+      panel.style.left = "12px";
+      panel.style.right = "12px";
       panel.style.bottom = "86px";
+      panel.style.maxWidth = "none";
+      panel.style.maxHeight = "min(38vh, 300px)";
+    } else {
+      panel.style.left = "16px";
+      panel.style.right = "";
+      panel.style.bottom = "96px";
+      panel.style.maxWidth = "min(340px, calc(100vw - 24px))";
+      panel.style.maxHeight = "min(46vh, 360px)";
     }
-
-    panel.style.right = "16px";
   }
 
   clearBoard(false);
@@ -438,28 +422,6 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   const onWindowResize = () => {
     positionToolsPanel(toolsPanel);
   };
-
-  const topbar = document.querySelector(".dc-room-topbar-shell");
-  const bandwidthPanel = document.querySelector(".dc-bandwidth-panel");
-  const topbarResizeObserver =
-    topbar && typeof ResizeObserver !== "undefined"
-      ? new ResizeObserver(() => {
-          positionToolsPanel(toolsPanel);
-        })
-      : null;
-  const bandwidthResizeObserver =
-    bandwidthPanel && typeof ResizeObserver !== "undefined"
-      ? new ResizeObserver(() => {
-          positionToolsPanel(toolsPanel);
-        })
-      : null;
-
-  if (topbarResizeObserver && topbar) {
-    topbarResizeObserver.observe(topbar);
-  }
-  if (bandwidthResizeObserver && bandwidthPanel) {
-    bandwidthResizeObserver.observe(bandwidthPanel);
-  }
 
   window.addEventListener("resize", onWindowResize);
 
@@ -486,8 +448,6 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
       socket.off("blackboard-snapshot", onBlackboardSnapshot);
 
       window.removeEventListener("resize", onWindowResize);
-      topbarResizeObserver?.disconnect();
-      bandwidthResizeObserver?.disconnect();
 
       pendingRemoteStrokes.length = 0;
       if (flushTimer) {
