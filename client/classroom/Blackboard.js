@@ -392,8 +392,46 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
     return panel;
   }
 
+  function positionToolsPanel(panel) {
+    if (!panel) return;
+
+    const topbar = document.querySelector(".dc-room-topbar-shell");
+    const containerRect = container.getBoundingClientRect();
+    let safeTop = 84;
+
+    if (topbar) {
+      const topbarRect = topbar.getBoundingClientRect();
+      // Keep tools panel below the classroom header even when header wraps on small screens.
+      safeTop = Math.max(safeTop, Math.round(topbarRect.bottom - containerRect.top + 10));
+    }
+
+    // Keep some breathing room from the viewport edge on small heights.
+    const maxTop = Math.max(16, window.innerHeight - 140);
+    panel.style.top = `${Math.min(safeTop, maxTop)}px`;
+    panel.style.right = "16px";
+  }
+
   clearBoard(false);
   const toolsPanel = buildPanel();
+  positionToolsPanel(toolsPanel);
+
+  const onWindowResize = () => {
+    positionToolsPanel(toolsPanel);
+  };
+
+  const topbar = document.querySelector(".dc-room-topbar-shell");
+  const topbarResizeObserver =
+    topbar && typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(() => {
+          positionToolsPanel(toolsPanel);
+        })
+      : null;
+
+  if (topbarResizeObserver && topbar) {
+    topbarResizeObserver.observe(topbar);
+  }
+
+  window.addEventListener("resize", onWindowResize);
 
   if (canWrite) {
     renderer.domElement.addEventListener("pointerdown", onPointerDown, { passive: true });
@@ -416,6 +454,9 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
       socket.off("blackboard-stroke", onBlackboardStroke);
       socket.off("blackboard-clear", onBlackboardClear);
       socket.off("blackboard-snapshot", onBlackboardSnapshot);
+
+      window.removeEventListener("resize", onWindowResize);
+      topbarResizeObserver?.disconnect();
 
       pendingRemoteStrokes.length = 0;
       if (flushTimer) {
