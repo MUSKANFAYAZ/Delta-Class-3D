@@ -380,9 +380,10 @@ async function renderRoute() {
   const isClassroomRoute = path === "/classroom" || path === "/room";
 
   if (isClassroomRoute) {
-    enableClassroomRefreshGuard();
+    // Custom reload modal is handled in classroomPage.js beforeunload listener
+    // enableClassroomRefreshGuard();
   } else {
-    disableClassroomRefreshGuard();
+    // disableClassroomRefreshGuard();
     cleanupActiveClassroomConnection();
   }
 
