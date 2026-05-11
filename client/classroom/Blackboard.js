@@ -238,8 +238,8 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
 
     Object.assign(panel.style, {
       position: "fixed",
-      left: "16px",
-      bottom: "96px",
+      right: "16px",
+      top: "84px",
       zIndex: "10030",
       display: "flex",
       flexDirection: "column",
@@ -255,7 +255,7 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
       fontSize: "12px",
       fontWeight: "600",
       pointerEvents: "auto",
-      maxWidth: "min(340px, calc(100vw - 24px))",
+      maxWidth: "min(320px, calc(100vw - 24px))",
       maxHeight: "min(46vh, 360px)",
       overflowY: "auto",
     });
@@ -399,19 +399,49 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   function positionToolsPanel(panel) {
     if (!panel) return;
 
+    const topbar = document.querySelector(".dc-room-topbar-shell");
+    const bandwidthPanel = document.querySelector(".dc-bandwidth-panel");
+
+    let blockerBottom = 72;
+    if (topbar) {
+      const rect = topbar.getBoundingClientRect();
+      blockerBottom = Math.max(blockerBottom, Math.round(rect.bottom));
+    }
+    if (bandwidthPanel && !bandwidthPanel.hasAttribute("hidden")) {
+      const rect = bandwidthPanel.getBoundingClientRect();
+      if (rect.height > 0) {
+        blockerBottom = Math.max(blockerBottom, Math.round(rect.bottom));
+      }
+    }
+
+    const preferredTop = blockerBottom + 10;
     const compact = window.innerWidth <= 760;
-    if (compact) {
-      panel.style.left = "12px";
-      panel.style.right = "12px";
-      panel.style.bottom = "86px";
-      panel.style.maxWidth = "none";
-      panel.style.maxHeight = "min(38vh, 300px)";
+    const estimatedHeight = compact ? Math.min(panel.offsetHeight || 180, 220) : Math.min(panel.offsetHeight || 220, 300);
+    const enoughSpaceAtTop = window.innerHeight - preferredTop - 86 >= estimatedHeight;
+
+    if (enoughSpaceAtTop) {
+      panel.style.top = `${preferredTop}px`;
+      panel.style.bottom = "";
+
+      if (compact) {
+        panel.style.left = "";
+        panel.style.right = "12px";
+        panel.style.maxWidth = "min(300px, calc(100vw - 24px))";
+        panel.style.maxHeight = "min(34vh, 240px)";
+      } else {
+        panel.style.left = "";
+        panel.style.right = "16px";
+        panel.style.maxWidth = "min(320px, calc(100vw - 24px))";
+        panel.style.maxHeight = "min(46vh, 360px)";
+      }
     } else {
-      panel.style.left = "16px";
-      panel.style.right = "";
-      panel.style.bottom = "96px";
-      panel.style.maxWidth = "min(340px, calc(100vw - 24px))";
-      panel.style.maxHeight = "min(46vh, 360px)";
+      // Short viewport fallback to keep it visible above camera controls.
+      panel.style.top = "";
+      panel.style.bottom = compact ? "82px" : "94px";
+      panel.style.left = "";
+      panel.style.right = compact ? "12px" : "16px";
+      panel.style.maxWidth = compact ? "min(300px, calc(100vw - 24px))" : "min(320px, calc(100vw - 24px))";
+      panel.style.maxHeight = compact ? "min(34vh, 240px)" : "min(42vh, 320px)";
     }
   }
 
@@ -422,6 +452,22 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   const onWindowResize = () => {
     positionToolsPanel(toolsPanel);
   };
+
+  const topbar = document.querySelector(".dc-room-topbar-shell");
+  const bandwidthPanel = document.querySelector(".dc-bandwidth-panel");
+  const panelResizeObserver =
+    typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(() => {
+          positionToolsPanel(toolsPanel);
+        })
+      : null;
+
+  if (panelResizeObserver && topbar) {
+    panelResizeObserver.observe(topbar);
+  }
+  if (panelResizeObserver && bandwidthPanel) {
+    panelResizeObserver.observe(bandwidthPanel);
+  }
 
   window.addEventListener("resize", onWindowResize);
 
@@ -448,6 +494,7 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
       socket.off("blackboard-snapshot", onBlackboardSnapshot);
 
       window.removeEventListener("resize", onWindowResize);
+      panelResizeObserver?.disconnect();
 
       pendingRemoteStrokes.length = 0;
       if (flushTimer) {
