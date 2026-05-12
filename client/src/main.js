@@ -250,17 +250,17 @@ async function handleExitFromClassroom({ role, roomCode, isTeacher }, exitAction
     );
     if (!confirmEnd) return false;
 
+    cleanupActiveClassroomConnection();
+    localStorage.removeItem("delta-active-room");
+    removeSavedRoom(roomCode);
+    navigate("/dashboard?role=teacher");
+
     try {
       await api(`/classrooms/${encodeURIComponent(roomCode)}`, { method: "DELETE" });
     } catch (error) {
       window.alert(error?.message || "Failed to end class.");
       return false;
     }
-
-    cleanupActiveClassroomConnection();
-    localStorage.removeItem("delta-active-room");
-    removeSavedRoom(roomCode);
-    navigate("/dashboard?role=teacher");
     return true;
   } else if (exitAction?.action === "take_break") {
     cleanupActiveClassroomConnection();
