@@ -60,8 +60,8 @@ export function createClassroomLoader({
 
         const socket = io({
           path: "/socket.io",
-          // Allow polling fallback on constrained networks, then upgrade when possible.
-          transports: ["polling", "websocket"],
+          // Prefer websocket first to avoid polling resume errors; allow polling fallback when websocket unavailable.
+          transports: ["websocket", "polling"],
           auth: { role, roomCode, canWriteBlackboard },
           query: { role, roomCode, canWriteBlackboard: String(canWriteBlackboard) },
           reconnection: true,
