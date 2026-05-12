@@ -130,6 +130,11 @@ export class VoiceSystem {
 
     for (const peerId of peerIds) {
       try {
+        // Stagger connection initiation to prevent simultaneous offers/answers
+        // This prevents ICE candidate flooding and SDP negotiation failures
+        const delayMs = Math.random() * 500;
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        
         await this.initPeerConnection(peerId, true);
       } catch (err) {
         console.error(`[VoiceSystem] Failed to connect to peer ${peerId}:`, err);
@@ -349,8 +354,9 @@ export class VoiceSystem {
     sdp = sdp.replace(/^b=AS:\d+\r?$/gm, "");
 
     // Prefer an OPUS profile suitable for slow 2G/3G networks.
+    // Match various OPUS formats: opus/48000/2, opus/48000, etc.
     sdp = sdp.replace(
-      /(a=rtpmap:111 opus\/48000\/2\r?\n)/,
+      /(a=rtpmap:111 opus\/\d+(?:\/\d+)?\r?\n)/,
       "$1a=fmtp:111 minptime=10;useinbandfec=1;stereo=0;sprop-stereo=0;maxaveragebitrate=16000;maxplaybackrate=8000\r\na=ptime:20\r\n"
     );
 
