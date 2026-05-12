@@ -91,6 +91,8 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
   const raiseHandButton = wrap.querySelector("#raise-hand-button");
   const raiseHandPanel = wrap.querySelector("#raise-hand-panel");
   const raiseHandList = wrap.querySelector("#raise-hand-list");
+  let raiseHandListenersBound = false;
+  const raiseHandState = new Map();
 
   // Initialize Voice System when socket becomes available
   const initializeVoiceSystem = async () => {
@@ -108,7 +110,6 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
 
         // Set up button event handlers
         setupVoiceControls();
-        setupRaiseHandListeners();
         
         console.log("Voice System initialized successfully");
       } catch (error) {
@@ -163,6 +164,7 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
   // Check for socket availability and initialize voice system
   const checkAndInitializeVoice = () => {
     if (window.activeClassroomSocket) {
+      setupRaiseHandListeners();
       initializeVoiceSystem();
     } else {
       // Retry after a short delay
@@ -171,16 +173,19 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
   };
 
   const setupRaiseHandListeners = () => {
-    if (role !== "teacher" || !raiseHandList || !window.activeClassroomSocket) return;
+    if (raiseHandListenersBound || role !== "teacher" || !raiseHandList || !window.activeClassroomSocket) return;
+    raiseHandListenersBound = true;
 
     const renderRaiseHands = (list) => {
       raiseHandList.innerHTML = "";
       (list || []).forEach((entry) => {
         const userId = typeof entry === "string" ? entry : entry.userId;
         const displayName = (entry && entry.displayName) ? entry.displayName : userId;
+        const isMuted = Boolean(entry && entry.muted);
         const li = document.createElement("li");
         li.className = "dc-raise-hand-item";
         li.dataset.userId = userId;
+        li.dataset.muted = isMuted ? "true" : "false";
 
         const user = document.createElement("span");
         user.className = "dc-raise-hand-user";
@@ -189,13 +194,20 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
         const actions = document.createElement("div");
         actions.className = "dc-raise-hand-actions";
 
-        const unmuteBtn = document.createElement("button");
-        unmuteBtn.type = "button";
-        unmuteBtn.className = "dc-btn dc-btn-small dc-unmute-btn";
-        unmuteBtn.textContent = "Unmute";
-        unmuteBtn.addEventListener("click", () => {
-          window.activeClassroomSocket.emit("teacher-set-audio-state", { target: userId, muted: false });
-          window.activeClassroomSocket.emit("clear-raise-hand", { userId });
+        const micBtn = document.createElement("button");
+        micBtn.type = "button";
+        micBtn.className = "dc-btn dc-btn-small dc-mic-toggle-btn";
+        micBtn.dataset.userId = userId;
+        micBtn.innerHTML = isMuted
+          ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path></svg><span>Unmute</span>'
+          : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path></svg><span>Mute</span>';
+        micBtn.addEventListener("click", () => {
+          const nextMuted = !(raiseHandState.get(userId)?.muted ?? isMuted);
+          raiseHandState.set(userId, { muted: nextMuted });
+          window.activeClassroomSocket.emit("teacher-set-audio-state", { target: userId, muted: nextMuted });
+          if (!nextMuted) {
+            window.activeClassroomSocket.emit("clear-raise-hand", { userId });
+          }
         });
 
         const clearBtn = document.createElement("button");
@@ -206,7 +218,7 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
           window.activeClassroomSocket.emit("clear-raise-hand", { userId });
         });
 
-        actions.appendChild(unmuteBtn);
+        actions.appendChild(micBtn);
         actions.appendChild(clearBtn);
         li.appendChild(user);
         li.appendChild(actions);
@@ -215,10 +227,23 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
     };
 
     window.activeClassroomSocket.on("raise-hand-list", renderRaiseHands);
+    window.activeClassroomSocket.on("audio-state-change", ({ userId, muted }) => {
+      const item = raiseHandList.querySelector(`[data-user-id="${userId}"]`);
+      if (!item) return;
+      const micBtn = item.querySelector(".dc-mic-toggle-btn");
+      if (!micBtn) return;
+      const isMuted = Boolean(muted);
+      item.dataset.muted = isMuted ? "true" : "false";
+      raiseHandState.set(userId, { muted: isMuted });
+      micBtn.innerHTML = isMuted
+        ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path></svg><span>Unmute</span>'
+        : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path></svg><span>Mute</span>';
+    });
     window.activeClassroomSocket.on("unmute-request", ({ userId, displayName }) => {
       const current = Array.from(raiseHandList.querySelectorAll("li")).map((li) => ({
         userId: li.dataset.userId,
         displayName: li.querySelector(".dc-raise-hand-user")?.textContent || li.dataset.userId,
+        muted: li.dataset.muted === "true",
       }));
       if (!current.some((entry) => entry.userId === userId)) {
         renderRaiseHands([...current, { userId, displayName }]);

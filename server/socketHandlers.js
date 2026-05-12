@@ -62,10 +62,15 @@ module.exports = function attachSocketHandlers(io, deps) {
       if (role === "teacher") {
         activeSession.teacherSocketIds.add(socket.id);
         activeSession.teacherPresent = true;
-        const currentRaiseHands = Array.from(activeSession.raiseHands || []).map((id) => ({
-          userId: id,
-          displayName: activeSession.userDisplayNames?.get(id) || id,
-        }));
+        const currentRaiseHands = Array.from(activeSession.raiseHands || []).map((id) => {
+          const audioState = activeSession.userAudioStates?.get(id) || { muted: true, deafened: false };
+          return {
+            userId: id,
+            displayName: activeSession.userDisplayNames?.get(id) || id,
+            muted: Boolean(audioState.muted),
+            deafened: Boolean(audioState.deafened),
+          };
+        });
         socket.emit("raise-hand-list", currentRaiseHands);
       }
 
@@ -295,7 +300,15 @@ module.exports = function attachSocketHandlers(io, deps) {
       socket.on("raise-hand", () => {
         try {
           activeSession.raiseHands.add(socket.id);
-          const list = Array.from(activeSession.raiseHands).map(id => ({ userId: id, displayName: activeSession.userDisplayNames?.get(id) || id }));
+          const list = Array.from(activeSession.raiseHands).map((id) => {
+            const audioState = activeSession.userAudioStates?.get(id) || { muted: true, deafened: false };
+            return {
+              userId: id,
+              displayName: activeSession.userDisplayNames?.get(id) || id,
+              muted: Boolean(audioState.muted),
+              deafened: Boolean(audioState.deafened),
+            };
+          });
           for (const teacherId of activeSession.teacherSocketIds) {
             io.to(teacherId).emit("raise-hand-list", list);
           }
@@ -310,7 +323,15 @@ module.exports = function attachSocketHandlers(io, deps) {
           const senderIsTeacher = activeSession.teacherSocketIds.has(socket.id);
           if (!senderIsTeacher) return;
           if (userId) activeSession.raiseHands.delete(userId);
-          const list = Array.from(activeSession.raiseHands).map(id => ({ userId: id, displayName: activeSession.userDisplayNames?.get(id) || id }));
+          const list = Array.from(activeSession.raiseHands).map((id) => {
+            const audioState = activeSession.userAudioStates?.get(id) || { muted: true, deafened: false };
+            return {
+              userId: id,
+              displayName: activeSession.userDisplayNames?.get(id) || id,
+              muted: Boolean(audioState.muted),
+              deafened: Boolean(audioState.deafened),
+            };
+          });
           for (const teacherId of activeSession.teacherSocketIds) {
             io.to(teacherId).emit("raise-hand-list", list);
           }
@@ -333,10 +354,15 @@ module.exports = function attachSocketHandlers(io, deps) {
       socket.on("request-raise-hand-list", () => {
         try {
           if (role !== "teacher") return;
-          const currentRaiseHands = Array.from(activeSession.raiseHands || []).map((id) => ({
-            userId: id,
-            displayName: activeSession.userDisplayNames?.get(id) || id,
-          }));
+          const currentRaiseHands = Array.from(activeSession.raiseHands || []).map((id) => {
+            const audioState = activeSession.userAudioStates?.get(id) || { muted: true, deafened: false };
+            return {
+              userId: id,
+              displayName: activeSession.userDisplayNames?.get(id) || id,
+              muted: Boolean(audioState.muted),
+              deafened: Boolean(audioState.deafened),
+            };
+          });
           socket.emit("raise-hand-list", currentRaiseHands);
         } catch (err) {
           console.error("request-raise-hand-list error:", err);
