@@ -212,6 +212,19 @@ function broadcastSnapshot(socket, classroom) {
   }
 }
 
+function emitExistingPeers(socket, roomCode, activeSession) {
+  const existingPeers = Array.from(io.sockets.adapter.rooms.get(roomCode) || [])
+    .filter(id => id !== socket.id)
+    .map(id => ({
+      userId: id,
+      role: activeSession.teacherSocketIds.has(id) ? "teacher" : "student"
+    }));
+
+  if (existingPeers.length > 0) {
+    socket.emit("existing-peers", existingPeers);
+  }
+}
+
 app.post("/auth/classrooms", authMiddleware, async (req, res) => {
   try {
     const code = normalizeRoomCode(req.body?.code);
@@ -610,6 +623,11 @@ io.on("connection", async (socket) => {
       activeSession.studentPositions.delete(socket.id);
       activeSession.teacherPositions.delete(socket.id);
       activeSession.teacherSocketIds.delete(socket.id);
+      
+      // Clean up audio state for this user
+      if (activeSession.userAudioStates) {
+        activeSession.userAudioStates.delete(socket.id);
+      }
 
       if (role === "teacher" && activeSession.teacherSocketIds.size === 0) {
         activeSession.teacherPresent = false;
@@ -623,26 +641,66 @@ io.on("connection", async (socket) => {
       ) {
         activeClassrooms.delete(roomCode);
       }
+      
+      // Notify all users that a peer left
+      io.to(roomCode).emit("peer-left", socket.id);
     });
 
-    // Voice Chat / WebRTC Signaling
+
+    // Voice Chat / WebRTC Signaling with improved multi-user support
+    
+    // Track user audio states for multi-user scenarios
+    if (!activeSession.userAudioStates) {
+      activeSession.userAudioStates = new Map();
+    }
+    activeSession.userAudioStates.set(socket.id, { muted: true, deafened: false });
+    
+    // Notify all users in room about the new user joining
     socket.emit("peer-joined", { userId: socket.id, role });
     socket.broadcast.to(roomCode).emit("peer-joined", { userId: socket.id, role });
+    
+    // Send list of existing peers to the new user for multi-user setup
+    emitExistingPeers(socket, roomCode, activeSession);
+
+    socket.on("request-existing-peers", () => {
+      emitExistingPeers(socket, roomCode, activeSession);
+    });
 
     socket.on("webrtc-offer", ({ target, offer }) => {
+      if (DEBUG_LOGS) console.log(`WebRTC offer from ${socket.id} to ${target}`);
       io.to(target).emit("webrtc-offer", { caller: socket.id, offer });
     });
 
     socket.on("webrtc-answer", ({ target, answer }) => {
+      if (DEBUG_LOGS) console.log(`WebRTC answer from ${socket.id} to ${target}`);
       io.to(target).emit("webrtc-answer", { caller: socket.id, answer });
     });
 
     socket.on("webrtc-candidate", ({ target, candidate }) => {
+      if (DEBUG_LOGS && candidate) console.log(`ICE candidate from ${socket.id} to ${target}`);
       io.to(target).emit("webrtc-candidate", { caller: socket.id, candidate });
     });
-
-    socket.on("disconnect", () => {
-      io.to(roomCode).emit("peer-left", socket.id);
+    
+    // Track audio state changes for all users (helps with bandwidth mgmt)
+    socket.on("audio-state-change", ({ muted, deafened }) => {
+      if (muted !== undefined) {
+        const state = activeSession.userAudioStates.get(socket.id) || { muted: false, deafened: false };
+        state.muted = muted;
+        activeSession.userAudioStates.set(socket.id, state);
+        if (DEBUG_LOGS) console.log(`User ${socket.id} muted: ${muted}`);
+      }
+      if (deafened !== undefined) {
+        const state = activeSession.userAudioStates.get(socket.id) || { muted: false, deafened: false };
+        state.deafened = deafened;
+        activeSession.userAudioStates.set(socket.id, state);
+        if (DEBUG_LOGS) console.log(`User ${socket.id} deafened: ${deafened}`);
+      }
+      // Broadcast audio state to all other users for UI updates
+      socket.broadcast.to(roomCode).emit("audio-state-change", {
+        userId: socket.id,
+        muted: muted,
+        deafened: deafened
+      });
     });
 
   } catch (error) {
