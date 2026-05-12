@@ -58,7 +58,8 @@ export function createClassroomLoader({
           activeSocket = null;
         }
 
-        const socket = io({
+        // Helper to create a fresh socket instance (used for forced clean reconnects)
+        const createSocket = () => io({
           path: "/socket.io",
           // Prefer websocket first to avoid polling resume errors; allow polling fallback when websocket unavailable.
           transports: ["websocket", "polling"],
@@ -67,8 +68,43 @@ export function createClassroomLoader({
           reconnection: true,
         });
 
+        let socket = createSocket();
         activeSocket = socket;
         window.activeClassroomSocket = socket;
+
+        // Track consecutive connect errors and perform a forced clean reconnect
+        let connectErrorCount = 0;
+        const MAX_CONNECT_ERROR_BEFORE_RESET = 3;
+        const setupConnectErrorHandler = (skt) => {
+          skt.on("connect_error", (err) => {
+            connectErrorCount += 1;
+            console.warn("Socket connect_error", { count: connectErrorCount, err });
+            if (connectErrorCount >= MAX_CONNECT_ERROR_BEFORE_RESET) {
+              console.warn("Exceeded connect error threshold - forcing clean reconnect");
+              try {
+                // Remove listeners and disconnect
+                skt.removeAllListeners();
+                skt.disconnect();
+              } catch (e) {
+                console.warn("Error during socket cleanup:", e);
+              }
+
+              // Create a fresh socket and replace references
+              socket = createSocket();
+              activeSocket = socket;
+              window.activeClassroomSocket = socket;
+              connectErrorCount = 0;
+
+              // Re-attach the handler to the new socket so further errors are monitored
+              setupConnectErrorHandler(socket);
+
+              // Re-emit connect to start normal flow; consumers listen for socket.connect
+              socket.connect();
+            }
+          });
+        };
+
+        setupConnectErrorHandler(socket);
 
         if (!classroomStarted) {
           classroomStarted = true;
