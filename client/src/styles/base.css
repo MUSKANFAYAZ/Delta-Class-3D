@@ -260,8 +260,14 @@ body {
 }
 
 .dc-raise-hand-button--active {
-  background: rgba(124, 58, 237, 0.12);
-  border-color: rgba(124, 58, 237, 0.28);
+  background: linear-gradient(145deg, rgba(124, 58, 237, 0.96), rgba(99, 102, 241, 0.96));
+  border-color: rgba(124, 58, 237, 0.55);
+  box-shadow: 0 10px 24px rgba(124, 58, 237, 0.22);
+  transform: translateY(-1px);
+}
+
+.dc-raise-hand-button--active svg {
+  stroke: #ffffff;
 }
 
 .dc-room-exit-backdrop {
