@@ -9,6 +9,7 @@ export class VoiceSystem {
     this.audioContext = null;
     this.localAudioTrack = null;
     this.remoteAudioSources = new Map(); // userId -> AudioContext MediaElementAudioSourceNode
+    this.peerReconnectAttempts = new Map(); // userId -> attempt count
     
     // Voice state
     this.isMuted = true;
@@ -215,6 +216,27 @@ export class VoiceSystem {
         const sigState = pc.signalingState;
         if (sigState !== "have-local-offer" && sigState !== "have-local-pranswer") {
           console.warn(`[VoiceSystem] Ignoring remote answer from ${caller} due to signalingState=${sigState}`);
+
+          // If we received an answer while stable, attempt a limited recovery:
+          // close and recreate the peer connection and re-initiate an offer.
+          if (sigState === "stable") {
+            const attempts = this.peerReconnectAttempts.get(caller) || 0;
+            if (attempts < 2) {
+              console.warn(`[VoiceSystem] Attempting recovery for ${caller} (attempt ${attempts + 1})`);
+              this.peerReconnectAttempts.set(caller, attempts + 1);
+              try {
+                this.closePeer(caller);
+                // slight pause before recreating
+                await new Promise(r => setTimeout(r, 150 + Math.random() * 200));
+                await this.initPeerConnection(caller, true);
+              } catch (recErr) {
+                console.error(`[VoiceSystem] Recovery attempt failed for ${caller}:`, recErr);
+              }
+            } else {
+              console.warn(`[VoiceSystem] Max recovery attempts reached for ${caller}`);
+            }
+          }
+
           return;
         }
 
@@ -360,6 +382,12 @@ export class VoiceSystem {
         }
       } else if (pc.connectionState === "disconnected" || pc.connectionState === "failed" || pc.connectionState === "closed") {
         this.closePeer(userId);
+      }
+      if (pc.connectionState === "connected") {
+        // Clear any reconnect attempts on successful connect
+        if (this.peerReconnectAttempts && this.peerReconnectAttempts.has(userId)) {
+          this.peerReconnectAttempts.delete(userId);
+        }
       }
     };
 
