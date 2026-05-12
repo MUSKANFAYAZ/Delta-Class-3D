@@ -26,6 +26,13 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
 
         <div class="voice-controls dc-room-voice-controls">
           ${role === "student" ? `
+            <button id="raise-hand-button" type="button" class="dc-btn dc-btn-ghost dc-room-icon-btn" data-tooltip="Raise Hand">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 3v10"></path>
+                <path d="M8 7l4-4 4 4"></path>
+                <path d="M6 21h12"></path>
+              </svg>
+            </button>
             <button id="deafen-button" type="button" class="dc-btn dc-btn-ghost dc-room-icon-btn" data-tooltip="Mute Teacher">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M3 18v-6a9 9 0 0 1 18 0v6"></path>
@@ -77,6 +84,7 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
   // Voice System Integration
   let voiceSystem = null;
   const muteButton = wrap.querySelector("#mute-button");
+  const raiseHandButton = wrap.querySelector("#raise-hand-button");
   const deafenButton = wrap.querySelector("#deafen-button");
 
   // Initialize Voice System when socket becomes available
@@ -105,6 +113,17 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
 
   const setupVoiceControls = () => {
     if (!voiceSystem) return;
+
+    if (raiseHandButton && role === "student") {
+      raiseHandButton.addEventListener("click", () => {
+        if (window.activeClassroomSocket) {
+          window.activeClassroomSocket.emit("raise-hand");
+          window.activeClassroomSocket.emit("request-unmute");
+        }
+        raiseHandButton.setAttribute("data-tooltip", "Raised hand");
+        raiseHandButton.style.color = "#7c3aed";
+      });
+    }
 
     // Mute/Unmute button
     if (muteButton) {
@@ -262,6 +281,7 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
   return {
     cleanupVoiceSystem,
     muteButton,
+    raiseHandButton,
     deafenButton
   };
 }

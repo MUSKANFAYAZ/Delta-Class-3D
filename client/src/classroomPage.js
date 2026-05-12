@@ -15,6 +15,13 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
           <span id="connection-badge" class="connection">Starting</span>
           <div class="voice-controls item-group dc-room-voice-controls">
             ${role === "student" ? `
+                <button id="raise-hand-button" type="button" class="dc-btn dc-btn-ghost dc-icon-btn dc-room-icon-btn" data-tooltip="Raise Hand">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 3v10"></path>
+                    <path d="M8 7l4-4 4 4"></path>
+                    <path d="M6 21h12"></path>
+                  </svg>
+                </button>
                 <button id="deafen-button" type="button" class="dc-btn dc-btn-ghost dc-icon-btn dc-room-icon-btn" data-tooltip="Mute Teacher">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="icon-headph"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path></svg>
               </button>
@@ -98,6 +105,7 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
   const layoutHideButton = document.getElementById("layout-hide-button");
   const layoutShowButton = document.getElementById("layout-show-button");
   const muteButton = document.getElementById("mute-button");
+  const raiseHandButton = document.getElementById("raise-hand-button");
   const deafenButton = document.getElementById("deafen-button");
   const modalBackdrop = document.getElementById("exit-modal-backdrop");
   const cancelExitBtn = document.getElementById("cancel-exit-btn");
@@ -192,6 +200,17 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
   if (reloadButton) {
     reloadButton.addEventListener("click", () => {
       if (reloadModalBackdrop) reloadModalBackdrop.style.display = "flex";
+    });
+  }
+
+  if (raiseHandButton && role === "student") {
+    raiseHandButton.addEventListener("click", () => {
+      if (window.activeClassroomSocket) {
+        window.activeClassroomSocket.emit("raise-hand");
+        window.activeClassroomSocket.emit("request-unmute");
+      }
+      raiseHandButton.setAttribute("data-tooltip", "Raised hand");
+      raiseHandButton.style.color = "#7c3aed";
     });
   }
 

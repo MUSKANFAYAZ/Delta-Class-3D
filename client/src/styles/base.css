@@ -240,7 +240,7 @@ body {
 
 .dc-bandwidth-panel {
   position: absolute;
-  left: 12px;
+  right: 12px;
   top: 88px;
   z-index: 20;
   width: min(320px, calc(100% - 24px));
@@ -386,6 +386,55 @@ body {
   display: none !important;
 }
 
+.dc-raise-hand-panel {
+  position: absolute;
+  right: 12px;
+  top: 420px;
+  z-index: 20;
+  width: min(320px, calc(100% - 24px));
+  background: var(--dc-card);
+  border: 1px solid var(--dc-border);
+  border-radius: 14px;
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  box-shadow: var(--dc-shadow);
+}
+
+.dc-raise-hand-title {
+  margin: 0;
+  color: #20143a;
+  font-size: 16px;
+}
+
+.dc-raise-hand-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.dc-raise-hand-item {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(106, 62, 191, 0.16);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.dc-raise-hand-user {
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.dc-raise-hand-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 @media (max-width: 768px) {
   .dc-room-shell {
     overflow: hidden;
@@ -417,6 +466,12 @@ body {
   }
 
   .dc-bandwidth-panel {
+    position: static;
+    width: calc(100% - 16px);
+    margin: 0 8px 8px;
+  }
+
+  .dc-raise-hand-panel {
     position: static;
     width: calc(100% - 16px);
     margin: 0 8px 8px;
