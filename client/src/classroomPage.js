@@ -17,9 +17,11 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
             ${role === "student" ? `
                 <button id="raise-hand-button" type="button" class="dc-btn dc-btn-ghost dc-icon-btn dc-room-icon-btn" data-tooltip="Raise Hand">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 3v10"></path>
-                    <path d="M8 7l4-4 4 4"></path>
-                    <path d="M6 21h12"></path>
+                    <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
+                    <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
+                    <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
+                    <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
+                    <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
                   </svg>
                 </button>
             ` : `

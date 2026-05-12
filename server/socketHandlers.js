@@ -62,6 +62,11 @@ module.exports = function attachSocketHandlers(io, deps) {
       if (role === "teacher") {
         activeSession.teacherSocketIds.add(socket.id);
         activeSession.teacherPresent = true;
+        const currentRaiseHands = Array.from(activeSession.raiseHands || []).map((id) => ({
+          userId: id,
+          displayName: activeSession.userDisplayNames?.get(id) || id,
+        }));
+        socket.emit("raise-hand-list", currentRaiseHands);
       }
 
       if (role === "student" && !activeSession.teacherPresent) {
@@ -322,6 +327,19 @@ module.exports = function attachSocketHandlers(io, deps) {
           }
         } catch (err) {
           console.error("request-unmute error:", err);
+        }
+      });
+
+      socket.on("request-raise-hand-list", () => {
+        try {
+          if (role !== "teacher") return;
+          const currentRaiseHands = Array.from(activeSession.raiseHands || []).map((id) => ({
+            userId: id,
+            displayName: activeSession.userDisplayNames?.get(id) || id,
+          }));
+          socket.emit("raise-hand-list", currentRaiseHands);
+        } catch (err) {
+          console.error("request-raise-hand-list error:", err);
         }
       });
 

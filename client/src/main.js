@@ -557,6 +557,8 @@ async function renderRoute() {
               renderRaiseHands([...current, { userId, displayName }]);
             }
           });
+
+          socket.emit('request-raise-hand-list');
         } catch (err) {
           console.warn('initRaiseHandWiring error', err);
         }
