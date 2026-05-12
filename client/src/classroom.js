@@ -49,13 +49,37 @@ export function startClassroom(socket, role, options = {}) {
     import("../classroom/CameraSystem.js"),
     import("../classroom/Blackboard.js"),
   ]).then(([cameraSystemModule, blackboardModule]) => {
-    cameraSystemModule.setupCameraSystem({
+    const cameraSystem = cameraSystemModule.setupCameraSystem({
       container,
       scene,
       camera,
       renderer,
       teacher,
+      lowBandwidth,
+      strictLowBandwidth,
     });
+
+    // Render an initial frame immediately so UI doesn't appear blank
+    cameraSystem.requestRenderOnce();
+
+    // On constrained networks, avoid continuous rendering. Start rendering on user interaction for a short burst.
+    if (!lowBandwidth) {
+      cameraSystem.start();
+    } else {
+      let interactionTimer = null;
+      const startForShort = () => {
+        cameraSystem.start();
+        clearTimeout(interactionTimer);
+        interactionTimer = setTimeout(() => {
+          cameraSystem.stop();
+        }, 4000);
+      };
+
+      const interactionEvents = ["pointermove", "click", "wheel", "keydown"];
+      interactionEvents.forEach((ev) => {
+        container.addEventListener(ev, startForShort, { passive: true });
+      });
+    }
 
     blackboardModule.setupBlackboardSystem({
       container,

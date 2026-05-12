@@ -147,6 +147,9 @@ function createActiveSessionFromClassroom(classroom) {
     blackboardStrokes: Array.isArray(classroom?.blackboardStrokes)
       ? [...classroom.blackboardStrokes]
       : [],
+    userAudioStates: new Map(),
+    raiseHands: new Set(),
+    userDisplayNames: new Map(),
   };
 }
 
@@ -457,257 +460,19 @@ if (clientBuildExists) {
   });
 }
 
-io.on("connection", async (socket) => {
-  const role = getRole(socket);
-  const roomCode = normalizeRoomCode(
-    socket.handshake.auth?.roomCode || socket.handshake.query?.roomCode,
-  );
-
-  if (!isValidRoomCode(roomCode)) {
-    socket.emit("room-error", { message: "Invalid room code" });
-    socket.disconnect(true);
-    return;
-  }
-
-  try {
-    // Fetch classroom from MongoDB. If Mongo is temporarily unavailable,
-    // keep live room sync working from in-memory state.
-    let classroom = null;
-    try {
-      classroom = await Classroom.findOne({ code: roomCode });
-    } catch (dbError) {
-      if (DEBUG_LOGS) console.error("Classroom lookup failed:", dbError?.message || dbError);
-    }
-
-    const hasActiveSession = activeClassrooms.has(roomCode);
-    if (!classroom && !hasActiveSession && role !== "teacher") {
-      socket.emit("room-error", { message: "Room does not exist" });
-      socket.disconnect(true);
-      return;
-    }
-
-    // Get or create an in-memory cache for this session
-    if (!activeClassrooms.has(roomCode)) {
-      activeClassrooms.set(roomCode, createActiveSessionFromClassroom(classroom));
-    }
-
-    const activeSession = activeClassrooms.get(roomCode);
-    socket.data.roomCode = roomCode;
-    socket.join(roomCode);
-
-    if (DEBUG_LOGS) console.log(`Socket connected: ${socket.id} (${role}) room=${roomCode}`);
-
-    if (role === "teacher") {
-      activeSession.teacherSocketIds.add(socket.id);
-      activeSession.teacherPresent = true;
-    }
-
-    if (role === "student" && !activeSession.teacherPresent) {
-      socket.emit("room-error", { message: "Class session is not started yet. Please wait for the teacher to enter the classroom." });
-      socket.disconnect(true);
-      return;
-    }
-
-    if (role === "student") {
-      const slotIndex = getNextAvailableSlot(activeSession);
-      if (slotIndex !== null) {
-        activeSession.studentAssignments.set(socket.id, slotIndex);
-        io.to(roomCode).emit("student-assigned", { userId: socket.id, slotIndex });
-      }
-    }
-
-    broadcastSnapshot(socket, activeSession);
-
-    // Send whiteboard snapshot to newly connected user.
-    if (activeSession.blackboardStrokes.length > 0) {
-      socket.emit("blackboard-snapshot", { strokes: activeSession.blackboardStrokes });
-    }
-
-    socket.on("move", (payload = {}) => {
-      const nextX = Number(payload.x);
-      const nextZ = Number(payload.z);
-
-      if (!Number.isFinite(nextX) || !Number.isFinite(nextZ)) {
-        return;
-      }
-
-      activeSession.studentPositions.set(socket.id, { x: nextX, z: nextZ });
-      io.to(roomCode).emit("student-move-update", {
-        userId: socket.id,
-        x: nextX,
-        z: nextZ,
-      });
-
-      // Compatibility event expected by older client builds.
-      io.to(roomCode).emit("update", { id: socket.id, x: nextX, z: nextZ });
-    });
-
-    socket.on("teacher-move", (payload = {}) => {
-      const nextX = Number(payload.x);
-      const nextZ = Number(payload.z);
-
-      if (!Number.isFinite(nextX) || !Number.isFinite(nextZ)) {
-        return;
-      }
-
-      activeSession.teacherPositions.set(socket.id, { x: nextX, z: nextZ });
-      io.to(roomCode).emit("teacher-move-update", { x: nextX, z: nextZ });
-    });
-
-    socket.on("teacher-instruction", (payload = {}) => {
-      if (typeof payload.direction !== "string") return;
-      io.to(roomCode).emit("teacher-instruction", { direction: payload.direction });
-    });
-
-    socket.on("teacher-student-instruction", (payload = {}) => {
-      const { userId, direction } = payload;
-      if (typeof userId !== "string" || typeof direction !== "string") return;
-
-      io.to(roomCode).emit("teacher-student-instruction", { userId, direction });
-    });
-
-    socket.on("blackboard-stroke", async (stroke) => {
-      if (!stroke) return;
-      // Keep an in-memory snapshot for live sync even if DB is temporarily unavailable.
-      activeSession.blackboardStrokes.push(stroke);
-      if (activeSession.blackboardStrokes.length > 1000) {
-        activeSession.blackboardStrokes = activeSession.blackboardStrokes.slice(-1000);
-      }
-
-      // Persist when DB-backed classroom is available.
-      if (classroom) {
-        classroom.blackboardStrokes = [...activeSession.blackboardStrokes];
-        await classroom.save().catch((err) => console.error("Error saving classroom:", err));
-      }
-
-      io.to(roomCode).emit("blackboard-stroke", stroke);
-    });
-
-    socket.on("blackboard-clear", async () => {
-      activeSession.blackboardStrokes = [];
-      if (classroom) {
-        classroom.blackboardStrokes = [];
-        await classroom.save().catch((err) => console.error("Error saving classroom:", err));
-      }
-      io.to(roomCode).emit("blackboard-clear");
-    });
-
-    socket.on("presentation-start", (payload) => {
-      if (role === "teacher") {
-        activeSession.presentation = payload;
-        // Broadcast only the initial slide
-        io.to(roomCode).emit("presentation-start", payload);
-      }
-    });
-
-    socket.on("presentation-update", (payload) => {
-      if (role === "teacher" && activeSession.presentation) {
-        activeSession.presentation.index = payload.index;
-        // Keep a copy of the current image on the server in case someone reconnects late
-        activeSession.presentation.image = payload.image;
-        io.to(roomCode).emit("presentation-update", payload);
-      }
-    });
-
-    socket.on("presentation-stop", () => {
-      if (role === "teacher") {
-        activeSession.presentation = null;
-        io.to(roomCode).emit("presentation-stop");
-      }
-    });
-
-    socket.on("disconnect", (reason) => {
-      if (DEBUG_LOGS) console.log(`Socket disconnected: ${socket.id} reason=${reason}`);
-
-      activeSession.studentAssignments.delete(socket.id);
-      activeSession.studentPositions.delete(socket.id);
-      activeSession.teacherPositions.delete(socket.id);
-      activeSession.teacherSocketIds.delete(socket.id);
-      
-      // Clean up audio state for this user
-      if (activeSession.userAudioStates) {
-        activeSession.userAudioStates.delete(socket.id);
-      }
-
-      if (role === "teacher" && activeSession.teacherSocketIds.size === 0) {
-        activeSession.teacherPresent = false;
-      }
-
-      if (
-        activeSession.studentAssignments.size === 0
-        && activeSession.studentPositions.size === 0
-        && activeSession.teacherPositions.size === 0
-        && activeSession.blackboardStrokes.length === 0
-      ) {
-        activeClassrooms.delete(roomCode);
-      }
-      
-      // Notify all users that a peer left
-      io.to(roomCode).emit("peer-left", socket.id);
-    });
-
-
-    // Voice Chat / WebRTC Signaling with improved multi-user support
-    
-    // Track user audio states for multi-user scenarios
-    if (!activeSession.userAudioStates) {
-      activeSession.userAudioStates = new Map();
-    }
-    activeSession.userAudioStates.set(socket.id, { muted: true, deafened: false });
-    
-    // Notify all users in room about the new user joining
-    socket.emit("peer-joined", { userId: socket.id, role });
-    socket.broadcast.to(roomCode).emit("peer-joined", { userId: socket.id, role });
-    
-    // Send list of existing peers to the new user for multi-user setup
-    emitExistingPeers(socket, roomCode, activeSession);
-
-    socket.on("request-existing-peers", () => {
-      emitExistingPeers(socket, roomCode, activeSession);
-    });
-
-    socket.on("webrtc-offer", ({ target, offer }) => {
-      if (DEBUG_LOGS) console.log(`WebRTC offer from ${socket.id} to ${target}`);
-      io.to(target).emit("webrtc-offer", { caller: socket.id, offer });
-    });
-
-    socket.on("webrtc-answer", ({ target, answer }) => {
-      if (DEBUG_LOGS) console.log(`WebRTC answer from ${socket.id} to ${target}`);
-      io.to(target).emit("webrtc-answer", { caller: socket.id, answer });
-    });
-
-    socket.on("webrtc-candidate", ({ target, candidate }) => {
-      if (DEBUG_LOGS && candidate) console.log(`ICE candidate from ${socket.id} to ${target}`);
-      io.to(target).emit("webrtc-candidate", { caller: socket.id, candidate });
-    });
-    
-    // Track audio state changes for all users (helps with bandwidth mgmt)
-    socket.on("audio-state-change", ({ muted, deafened }) => {
-      if (muted !== undefined) {
-        const state = activeSession.userAudioStates.get(socket.id) || { muted: false, deafened: false };
-        state.muted = muted;
-        activeSession.userAudioStates.set(socket.id, state);
-        if (DEBUG_LOGS) console.log(`User ${socket.id} muted: ${muted}`);
-      }
-      if (deafened !== undefined) {
-        const state = activeSession.userAudioStates.get(socket.id) || { muted: false, deafened: false };
-        state.deafened = deafened;
-        activeSession.userAudioStates.set(socket.id, state);
-        if (DEBUG_LOGS) console.log(`User ${socket.id} deafened: ${deafened}`);
-      }
-      // Broadcast audio state to all other users for UI updates
-      socket.broadcast.to(roomCode).emit("audio-state-change", {
-        userId: socket.id,
-        muted: muted,
-        deafened: deafened
-      });
-    });
-
-  } catch (error) {
-    console.error("Socket connection error:", error);
-    socket.emit("room-error", { message: "Error connecting to room" });
-    socket.disconnect(true);
-  }
+// Attach Socket.IO connection handlers (moved to modular file)
+const attachSocketHandlers = require("./socketHandlers");
+attachSocketHandlers(io, {
+  getRole,
+  normalizeRoomCode,
+  isValidRoomCode,
+  Classroom,
+  activeClassrooms,
+  createActiveSessionFromClassroom,
+  getNextAvailableSlot,
+  broadcastSnapshot,
+  emitExistingPeers,
+  DEBUG_LOGS,
 });
 
 // DELETE classroom logic

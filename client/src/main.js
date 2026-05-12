@@ -90,12 +90,67 @@ async function loadSocketClientModule() {
   }
 }
 
+            // Teacher-side raise-hand UI wiring
+            if (roomRole === "teacher" && page.raiseHandList && window.activeClassroomSocket) {
+              const renderRaiseHands = (list) => {
+                page.raiseHandList.innerHTML = "";
+                (list || []).forEach(entry => {
+                  const userId = typeof entry === 'string' ? entry : entry.userId;
+                  const displayName = (entry && entry.displayName) ? entry.displayName : userId;
+                  const li = document.createElement("li");
+                  li.className = "dc-raise-hand-item";
+                  li.dataset.userId = userId;
+                  li.innerHTML = `
+                    <span class="dc-raise-hand-user">${escapeHtml(displayName)}</span>
+                    <div class="dc-raise-hand-actions">
+                      <button type="button" class="dc-btn dc-btn-small dc-unmute-btn">Unmute</button>
+                      <button type="button" class="dc-btn dc-btn-ghost dc-clear-btn">Clear</button>
+                    </div>
+                  `;
+                  const unmuteBtn = li.querySelector('.dc-unmute-btn');
+                  const clearBtn = li.querySelector('.dc-clear-btn');
+                  unmuteBtn.addEventListener('click', () => {
+                    window.activeClassroomSocket.emit('teacher-set-audio-state', { target: userId, muted: false });
+                    window.activeClassroomSocket.emit('clear-raise-hand', { userId });
+                  });
+                  clearBtn.addEventListener('click', () => {
+                    window.activeClassroomSocket.emit('clear-raise-hand', { userId });
+                  });
+                  page.raiseHandList.appendChild(li);
+                });
+              };
+
+              // Listen for updates from server
+              window.activeClassroomSocket.on('raise-hand-list', (list) => {
+                try { renderRaiseHands(list); } catch (e) { console.warn('Render raise-hands failed', e); }
+              });
+
+              window.activeClassroomSocket.on('unmute-request', ({ userId, displayName }) => {
+                const existing = page.raiseHandList.querySelector(`[data-user-id="${userId}"]`);
+                if (!existing) {
+                  const current = page.raiseHandList ? Array.from(page.raiseHandList.querySelectorAll('li')).map(li=>({ userId: li.dataset.userId, displayName: li.querySelector('.dc-raise-hand-user')?.textContent || li.dataset.userId })) : [];
+                  renderRaiseHands([...current, { userId, displayName }]);
+                }
+              });
+            }
+
 function runWhenIdle(task) {
   if (typeof window.requestIdleCallback === "function") {
     window.requestIdleCallback(task, { timeout: 1200 });
   } else {
     window.setTimeout(task, 250);
   }
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"'`]/g, (s) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+    '`': '&#96;'
+  }[s]));
 }
 
 let dashboardChunkPrefetched = false;
@@ -134,7 +189,7 @@ async function startSocketClassroom({ role, roomCode }) {
   const socket = io({
     path: "/socket.io",
     transports: ["websocket"],
-    auth: { role, roomCode },
+    auth: { role, roomCode, displayName: localStorage.getItem("delta-user-display") || "" },
     query: { role, roomCode },
     reconnection: true,
   });

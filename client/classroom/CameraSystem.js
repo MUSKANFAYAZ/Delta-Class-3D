@@ -1,6 +1,6 @@
 import * as THREE from "./three-cdn.js";
 
-export function setupCameraSystem({ container, scene, camera, renderer, teacher }) {
+export function setupCameraSystem({ container, scene, camera, renderer, teacher, lowBandwidth = false, strictLowBandwidth = false }) {
   const cameraTarget = new THREE.Vector3(0, 2, -5);
   const cameraGoal = new THREE.Vector3();
   const lookGoal = new THREE.Vector3();
@@ -213,8 +213,24 @@ export function setupCameraSystem({ container, scene, camera, renderer, teacher 
 
   setFullView(true);
 
-  function animate() {
-    requestAnimationFrame(animate);
+  // Rendering loop control
+  let rafId = null;
+  let running = false;
+  // Adaptive FPS for low-bandwidth (2G) networks
+  const effectiveType = (navigator.connection && navigator.connection.effectiveType) || null;
+  const is2gNetwork = strictLowBandwidth || effectiveType === "2g" || lowBandwidth;
+  const targetFps = is2gNetwork ? 8 : 60; // cap FPS on poor networks
+  const frameInterval = 1000 / targetFps;
+  let lastFrameTime = 0;
+
+  function renderFrame(now) {
+    rafId = requestAnimationFrame(renderFrame);
+    if (!running) return;
+    if (document.hidden) return; // pause when not visible
+    const t = now || performance.now();
+    if (t - lastFrameTime < frameInterval) return; // throttle for target FPS
+    lastFrameTime = t;
+
     if (cameraMode === "follow") {
       updateFollowCamera();
     } else {
@@ -223,7 +239,25 @@ export function setupCameraSystem({ container, scene, camera, renderer, teacher 
     camera.lookAt(cameraTarget);
     renderer.render(scene, camera);
   }
-  animate();
+
+  function start() {
+    if (running) return;
+    running = true;
+    lastFrameTime = performance.now();
+    if (!rafId) rafId = requestAnimationFrame(renderFrame);
+  }
+
+  function stop() {
+    running = false;
+  }
+
+  function requestRenderOnce() {
+    // Render a single frame regardless of running state
+    updateCameraTransition();
+    if (cameraMode === "follow") updateFollowCamera();
+    camera.lookAt(cameraTarget);
+    renderer.render(scene, camera);
+  }
 
   const onResize = () => {
     const width = window.innerWidth;
@@ -235,5 +269,18 @@ export function setupCameraSystem({ container, scene, camera, renderer, teacher 
 
   window.addEventListener("resize", onResize);
 
-  return { followStudent, setBlackboardView, setFullView, setTeacherView };
+  // Visibility handling: stop rendering when tab is hidden
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stop();
+  });
+
+  return {
+    followStudent,
+    setBlackboardView,
+    setFullView,
+    setTeacherView,
+    start,
+    stop,
+    requestRenderOnce,
+  };
 }

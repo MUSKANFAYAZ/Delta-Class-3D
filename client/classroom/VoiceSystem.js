@@ -32,6 +32,15 @@ export class VoiceSystem {
 
   setMuted(nextMuted) {
     this.isMuted = Boolean(nextMuted);
+    // If student tries to unmute themselves, disallow and request teacher permission
+    if (this.currentRole === "student" && !this.isMuted) {
+      // revert flag and send request to teacher
+      this.socket.emit("request-unmute");
+      // keep muted
+      this.isMuted = true;
+      return this.isMuted;
+    }
+
     if (this.localStream) {
       this.localStream.getAudioTracks().forEach((track) => {
         track.enabled = !this.isMuted;
@@ -71,19 +80,25 @@ export class VoiceSystem {
 
   async initLocalStream() {
     try {
+      // Detect low-bandwidth / save-data mode (2G devices)
+      const net = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      const effectiveType = String(net?.effectiveType || "").toLowerCase();
+      const saveData = Boolean(net?.saveData);
+      const isLowBandwidth = saveData || effectiveType === "slow-2g" || effectiveType === "2g";
+
       const constraints = {
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: false, // Disable AGC to prevent volume conflicts in group calls
-          
-          // Low bandwidth constraints for 2G/3G
-          sampleRate: { ideal: 16000 }, // 8kHz for extreme 2G, 16kHz for better quality on 3G
-          channelCount: 1, // Mono for low bandwidth
-          
+
+          // Adapt sample rate and bitrate based on network
+          sampleRate: isLowBandwidth ? { ideal: 8000 } : { ideal: 16000 },
+          channelCount: 1,
+
           // Optional constraints for network adaption
-          latency: 0.01, // 10ms target latency
-          maxaveragebitrate: 16000, // 16kbps max for 3G
+          latency: 0.01,
+          maxaveragebitrate: isLowBandwidth ? 8000 : 16000,
         },
         video: false
       };
@@ -263,6 +278,57 @@ export class VoiceSystem {
       this.closePeer(userId);
     });
     
+    // Update audio state notifications from server (teacher or user updates)
+    this.socket.on("audio-state-change", ({ userId, muted, deafened, by }) => {
+      try {
+        // If this update is about this client
+        if (userId === this.currentUserId) {
+          if (muted !== undefined) {
+            this.isMuted = Boolean(muted);
+            if (this.localStream) {
+              this.localStream.getAudioTracks().forEach((t) => { t.enabled = !this.isMuted; });
+            }
+          }
+          if (deafened !== undefined) {
+            this.isDeafened = Boolean(deafened);
+            // Mute/unmute remote audio elements locally when deafened toggles
+            document.querySelectorAll('.dc-remote-audio').forEach(a => { a.muted = this.isDeafened; });
+          }
+          return;
+        }
+
+        // Update remote audio element for other users
+        const audio = document.getElementById(`audio-${userId}`);
+        if (audio) {
+          if (muted !== undefined) {
+            // If muted=true, mute the remote element; if false, attempt playback
+            audio.muted = Boolean(muted) || this.isDeafened;
+            if (!audio.muted) {
+              audio.play().catch(err => console.warn(`[VoiceSystem] Play after state update failed for ${userId}:`, err));
+            }
+          }
+          if (deafened !== undefined) {
+            // Deafened is a local-only flag; reflect as mute on element
+            audio.muted = this.isDeafened || Boolean(deafened);
+          }
+        }
+      } catch (err) {
+        console.warn("audio-state-change handler error:", err);
+      }
+    });
+
+    // Teachers receive list of raised hands
+    this.socket.on("raise-hand-list", (list) => {
+      console.log("[VoiceSystem] Raised hand list:", list);
+      // UI integration point: teacher UI can subscribe to socket events
+    });
+
+    // Teachers receive unmute requests from students
+    this.socket.on("unmute-request", ({ userId }) => {
+      console.log("[VoiceSystem] Unmute request from:", userId);
+      // UI integration point: show prompt in teacher UI
+    });
+    
     // Handle multiple connections more gracefully
     this.socket.on("disconnect", () => {
       console.log("[VoiceSystem] Socket disconnected");
@@ -336,7 +402,7 @@ export class VoiceSystem {
         audioEntry = document.createElement("audio");
         audioEntry.id = `audio-${userId}`;
         // Start with muted=true for autoplay permission, then unmute once ready
-        audioEntry.muted = !this.isDeafened; // Muted unless user deafened
+        audioEntry.muted = this.isDeafened; // Muted only if user deafened
         audioEntry.autoplay = true;
         audioEntry.playsInline = true;
         audioEntry.className = "dc-remote-audio";

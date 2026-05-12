@@ -48,6 +48,13 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
         Show Layout
       </button>
       <main id="canvas-container" class="canvas-container dc-classroom-canvas"></main>
+      ${role === "teacher" ? `
+      <aside id="raise-hand-panel" class="dc-raise-hand-panel" aria-live="polite">
+        <h3 class="dc-raise-hand-title">Raised Hands</h3>
+        <p class="dc-muted dc-small">Students who raised hands will appear here.</p>
+        <ul id="raise-hand-list" class="dc-raise-hand-list"></ul>
+      </aside>
+      ` : ``}
     </div>
 
     <!-- Reload Warning Modal -->
@@ -101,6 +108,9 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
   if (!connectionStatus || !connectionBadge || !bandwidthPanel || !loadButton || !exitButton) {
     throw new Error("Missing classroom UI elements");
   }
+
+  const raiseHandPanel = document.getElementById("raise-hand-panel");
+  const raiseHandList = document.getElementById("raise-hand-list");
 
   const showModal = () => {
     modalBackdrop.style.display = "flex";
@@ -230,6 +240,8 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
     loadButton,
     muteButton,
     deafenButton,
+    raiseHandPanel,
+    raiseHandList,
     setStatus,
   };
 }
