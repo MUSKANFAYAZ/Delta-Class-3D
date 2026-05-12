@@ -321,8 +321,15 @@ module.exports = function attachSocketHandlers(io, deps) {
       socket.on("clear-raise-hand", ({ userId }) => {
         try {
           const senderIsTeacher = activeSession.teacherSocketIds.has(socket.id);
-          if (!senderIsTeacher) return;
-          if (userId) activeSession.raiseHands.delete(userId);
+          const senderIsStudent = role === "student";
+          // Teacher can clear any student, student can only clear their own
+          if (senderIsTeacher) {
+            if (userId) activeSession.raiseHands.delete(userId);
+          } else if (senderIsStudent && userId === socket.id) {
+            activeSession.raiseHands.delete(socket.id);
+          } else {
+            return;
+          }
           const list = Array.from(activeSession.raiseHands).map((id) => {
             const audioState = activeSession.userAudioStates?.get(id) || { muted: true, deafened: false };
             return {

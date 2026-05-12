@@ -152,9 +152,6 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
           const nextMuted = !(raiseHandState.get(userId)?.muted ?? isMuted);
           raiseHandState.set(userId, { muted: nextMuted });
           window.activeClassroomSocket.emit("teacher-set-audio-state", { target: userId, muted: nextMuted });
-          if (!nextMuted) {
-            window.activeClassroomSocket.emit("clear-raise-hand", { userId });
-          }
         });
 
         const clearBtn = document.createElement("button");
