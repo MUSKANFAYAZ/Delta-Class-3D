@@ -90,49 +90,6 @@ async function loadSocketClientModule() {
   }
 }
 
-            // Teacher-side raise-hand UI wiring
-            if (roomRole === "teacher" && page.raiseHandList && window.activeClassroomSocket) {
-              const renderRaiseHands = (list) => {
-                page.raiseHandList.innerHTML = "";
-                (list || []).forEach(entry => {
-                  const userId = typeof entry === 'string' ? entry : entry.userId;
-                  const displayName = (entry && entry.displayName) ? entry.displayName : userId;
-                  const li = document.createElement("li");
-                  li.className = "dc-raise-hand-item";
-                  li.dataset.userId = userId;
-                  li.innerHTML = `
-                    <span class="dc-raise-hand-user">${escapeHtml(displayName)}</span>
-                    <div class="dc-raise-hand-actions">
-                      <button type="button" class="dc-btn dc-btn-small dc-unmute-btn">Unmute</button>
-                      <button type="button" class="dc-btn dc-btn-ghost dc-clear-btn">Clear</button>
-                    </div>
-                  `;
-                  const unmuteBtn = li.querySelector('.dc-unmute-btn');
-                  const clearBtn = li.querySelector('.dc-clear-btn');
-                  unmuteBtn.addEventListener('click', () => {
-                    window.activeClassroomSocket.emit('teacher-set-audio-state', { target: userId, muted: false });
-                    window.activeClassroomSocket.emit('clear-raise-hand', { userId });
-                  });
-                  clearBtn.addEventListener('click', () => {
-                    window.activeClassroomSocket.emit('clear-raise-hand', { userId });
-                  });
-                  page.raiseHandList.appendChild(li);
-                });
-              };
-
-              // Listen for updates from server
-              window.activeClassroomSocket.on('raise-hand-list', (list) => {
-                try { renderRaiseHands(list); } catch (e) { console.warn('Render raise-hands failed', e); }
-              });
-
-              window.activeClassroomSocket.on('unmute-request', ({ userId, displayName }) => {
-                const existing = page.raiseHandList.querySelector(`[data-user-id="${userId}"]`);
-                if (!existing) {
-                  const current = page.raiseHandList ? Array.from(page.raiseHandList.querySelectorAll('li')).map(li=>({ userId: li.dataset.userId, displayName: li.querySelector('.dc-raise-hand-user')?.textContent || li.dataset.userId })) : [];
-                  renderRaiseHands([...current, { userId, displayName }]);
-                }
-              });
-            }
 
 function runWhenIdle(task) {
   if (typeof window.requestIdleCallback === "function") {
@@ -515,14 +472,17 @@ async function renderRoute() {
             const { VoiceSystem } = await import("../classroom/VoiceSystem.js");
             activeVoiceSystem = new VoiceSystem(window.activeClassroomSocket, window.activeClassroomSocket.id, roomRole);
             window.activeVoiceSystem = activeVoiceSystem;
-            await activeVoiceSystem.initLocalStream();
+            try {
+              await activeVoiceSystem.initLocalStream();
+            } catch (e) {
+              console.error("Voice init err", e);
+            }
 
             if (page.muteButton) {
               page.muteButton.addEventListener("click", () => {
                 const isMuted = activeVoiceSystem.toggleMute();
-                // Enable remote audio with gesture if unmuting
                 if (!isMuted) {
-                  activeVoiceSystem.enableRemoteAudioWithGesture();
+                  activeVoiceSystem.enableRemoteAudioWithGesture && activeVoiceSystem.enableRemoteAudioWithGesture();
                 }
                 page.muteButton.innerHTML = isMuted
                   ? '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>'
@@ -550,9 +510,62 @@ async function renderRoute() {
         }
       };
       
+      // Raise-hand wiring: initialize when socket is available and page has raiseHandList
+      const initRaiseHandWiring = () => {
+        try {
+          if (roomRole !== "teacher") return;
+          if (!page.raiseHandList) return;
+          const socket = window.activeClassroomSocket;
+          if (!socket) return;
+
+          const renderRaiseHands = (list) => {
+            page.raiseHandList.innerHTML = "";
+            (list || []).forEach(entry => {
+              const userId = typeof entry === 'string' ? entry : entry.userId;
+              const displayName = (entry && entry.displayName) ? entry.displayName : userId;
+              const li = document.createElement("li");
+              li.className = "dc-raise-hand-item";
+              li.dataset.userId = userId;
+              li.innerHTML = `
+                <span class="dc-raise-hand-user">${escapeHtml(displayName)}</span>
+                <div class="dc-raise-hand-actions">
+                  <button type="button" class="dc-btn dc-btn-small dc-unmute-btn">Unmute</button>
+                  <button type="button" class="dc-btn dc-btn-ghost dc-clear-btn">Clear</button>
+                </div>
+              `;
+              const unmuteBtn = li.querySelector('.dc-unmute-btn');
+              const clearBtn = li.querySelector('.dc-clear-btn');
+              unmuteBtn.addEventListener('click', () => {
+                socket.emit('teacher-set-audio-state', { target: userId, muted: false });
+                socket.emit('clear-raise-hand', { userId });
+              });
+              clearBtn.addEventListener('click', () => {
+                socket.emit('clear-raise-hand', { userId });
+              });
+              page.raiseHandList.appendChild(li);
+            });
+          };
+
+          socket.on('raise-hand-list', (list) => {
+            try { renderRaiseHands(list); } catch (e) { console.warn('Render raise-hands failed', e); }
+          });
+
+          socket.on('unmute-request', ({ userId, displayName }) => {
+            const existing = page.raiseHandList.querySelector(`[data-user-id="${userId}"]`);
+            if (!existing) {
+              const current = page.raiseHandList ? Array.from(page.raiseHandList.querySelectorAll('li')).map(li=>({ userId: li.dataset.userId, displayName: li.querySelector('.dc-raise-hand-user')?.textContent || li.dataset.userId })) : [];
+              renderRaiseHands([...current, { userId, displayName }]);
+            }
+          });
+        } catch (err) {
+          console.warn('initRaiseHandWiring error', err);
+        }
+      };
+
       page.loadButton.addEventListener("click", () => {
         classroomLoader.handleLoadClick();
         checkAndInitVoice();
+        initRaiseHandWiring();
       });
       page.loadButton.addEventListener("mouseenter", () => classroomLoader.warmup().catch(() => {}), { once: true });
       page.setStatus("Ready to load the classroom.", "Idle");
