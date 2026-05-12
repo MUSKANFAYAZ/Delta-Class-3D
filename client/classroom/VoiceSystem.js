@@ -45,6 +45,19 @@ export class VoiceSystem {
     return this.setMuted(false);
   }
 
+  enableRemoteAudioWithGesture() {
+    // Call this from a user gesture (click/tap) to unmute remote audio
+    // This bypasses browser autoplay policy
+    document.querySelectorAll('.dc-remote-audio').forEach(audio => {
+      if (audio.muted && !this.isDeafened) {
+        audio.muted = false;
+        audio.play().catch(err => {
+          console.warn(`[VoiceSystem] Failed to play audio after gesture:`, err);
+        });
+      }
+    });
+  }
+
   refreshRemoteAudioElements() {
     document.querySelectorAll(".dc-remote-audio").forEach((audio) => {
       audio.muted = this.isDeafened;
@@ -280,25 +293,39 @@ export class VoiceSystem {
       if (!audioEntry) {
         audioEntry = document.createElement("audio");
         audioEntry.id = `audio-${userId}`;
+        // Start with muted=true for autoplay permission, then unmute once ready
+        audioEntry.muted = !this.isDeafened; // Muted unless user deafened
         audioEntry.autoplay = true;
         audioEntry.playsInline = true;
         audioEntry.className = "dc-remote-audio";
         audioEntry.volume = 0.8; // Prevent clipping
         
-        if (this.isDeafened) audioEntry.muted = true;
-        
         // Add error handling for audio playback
-        audioEntry.onerror = () => console.error(`[VoiceSystem] Audio error for ${userId}`);
+        audioEntry.onerror = (err) => console.error(`[VoiceSystem] Audio error for ${userId}:`, err);
         audioEntry.onended = () => console.log(`[VoiceSystem] Audio ended for ${userId}`);
+        
+        // Wait for audio to be loadable, then play
+        audioEntry.onloadedmetadata = () => {
+          console.log(`[VoiceSystem] Audio metadata loaded for ${userId}, starting playback`);
+          audioEntry.play().catch(err => {
+            console.error(`[VoiceSystem] Failed to play audio for ${userId}:`, err);
+            // Retry with user gesture requirement noted
+            if (err.name === "NotAllowedError") {
+              console.warn(`[VoiceSystem] Autoplay blocked for ${userId} - waiting for user gesture`);
+            }
+          });
+        };
         
         document.body.appendChild(audioEntry);
       }
       
       audioEntry.srcObject = stream;
-      audioEntry.play().catch(err => {
-        // This can happen on slow networks - retry in a moment
-        setTimeout(() => audioEntry.play?.().catch(() => {}), 1000);
-      });
+      // Trigger play if metadata already loaded
+      if (audioEntry.readyState >= 1) {
+        audioEntry.play().catch(err => {
+          console.error(`[VoiceSystem] Immediate play failed for ${userId}:`, err);
+        });
+      }
     };
 
     // Monitor connection state changes
