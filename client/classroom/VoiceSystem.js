@@ -196,10 +196,30 @@ export class VoiceSystem {
     this.socket.on("webrtc-answer", async ({ caller, answer }) => {
       try {
         const pc = this.peers.get(caller);
-        if (pc) {
-          await pc.setRemoteDescription(new RTCSessionDescription(answer));
-          console.log(`[VoiceSystem] Answer applied for ${caller}`);
+        if (!pc) {
+          console.warn(`[VoiceSystem] Received answer for unknown peer ${caller}`);
+          return;
         }
+
+        // If remote description already matches, ignore duplicate answers
+        try {
+          if (pc.remoteDescription && pc.remoteDescription.sdp === answer.sdp) {
+            console.log(`[VoiceSystem] Duplicate answer received from ${caller}, ignoring`);
+            return;
+          }
+        } catch (e) {
+          // ignore comparison errors
+        }
+
+        // Only apply answers when in a state that expects them
+        const sigState = pc.signalingState;
+        if (sigState !== "have-local-offer" && sigState !== "have-local-pranswer") {
+          console.warn(`[VoiceSystem] Ignoring remote answer from ${caller} due to signalingState=${sigState}`);
+          return;
+        }
+
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        console.log(`[VoiceSystem] Answer applied for ${caller}`);
       } catch (err) {
         console.error(`[VoiceSystem] Error setting answer from ${caller}:`, err);
       }
