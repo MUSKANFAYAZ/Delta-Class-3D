@@ -259,6 +259,11 @@ body {
   z-index: 10;
 }
 
+.dc-raise-hand-button--active {
+  background: rgba(124, 58, 237, 0.12);
+  border-color: rgba(124, 58, 237, 0.28);
+}
+
 .dc-room-exit-backdrop {
   z-index: 9999;
   align-items: center;
@@ -383,6 +388,10 @@ body {
 
 .dc-room-shell.dc-room-layout-hidden .dc-room-topbar-shell,
 .dc-room-shell.dc-room-layout-hidden .dc-bandwidth-panel {
+  display: none !important;
+}
+
+.dc-room-shell.dc-room-layout-hidden .dc-raise-hand-panel {
   display: none !important;
 }
 

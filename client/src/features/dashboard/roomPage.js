@@ -33,12 +33,6 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
                 <path d="M6 21h12"></path>
               </svg>
             </button>
-            <button id="deafen-button" type="button" class="dc-btn dc-btn-ghost dc-room-icon-btn" data-tooltip="Mute Teacher">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 18v-6a9 9 0 0 1 18 0v6"></path>
-                <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path>
-              </svg>
-            </button>
           ` : ""}
           <button id="mute-button" type="button" class="dc-btn dc-btn-ghost dc-room-icon-btn" data-tooltip="Unmute Mic">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -54,6 +48,14 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
       </header>
 
       <main id="canvas-container" class="canvas-container"></main>
+
+      ${role === "teacher" ? `
+        <aside id="raise-hand-panel" class="dc-raise-hand-panel" aria-live="polite">
+          <h3 class="dc-raise-hand-title">Raised Hands</h3>
+          <p class="dc-muted dc-small">Students who raised hands will appear here.</p>
+          <ul id="raise-hand-list" class="dc-raise-hand-list"></ul>
+        </aside>
+      ` : ""}
 
     </main>
 
@@ -85,7 +87,8 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
   let voiceSystem = null;
   const muteButton = wrap.querySelector("#mute-button");
   const raiseHandButton = wrap.querySelector("#raise-hand-button");
-  const deafenButton = wrap.querySelector("#deafen-button");
+  const raiseHandPanel = wrap.querySelector("#raise-hand-panel");
+  const raiseHandList = wrap.querySelector("#raise-hand-list");
 
   // Initialize Voice System when socket becomes available
   const initializeVoiceSystem = async () => {
@@ -103,6 +106,7 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
 
         // Set up button event handlers
         setupVoiceControls();
+        setupRaiseHandListeners();
         
         console.log("Voice System initialized successfully");
       } catch (error) {
@@ -113,15 +117,29 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
 
   const setupVoiceControls = () => {
     if (!voiceSystem) return;
+    let isHandRaised = false;
 
     if (raiseHandButton && role === "student") {
       raiseHandButton.addEventListener("click", () => {
         if (window.activeClassroomSocket) {
-          window.activeClassroomSocket.emit("raise-hand");
-          window.activeClassroomSocket.emit("request-unmute");
+          if (!isHandRaised) {
+            window.activeClassroomSocket.emit("raise-hand");
+            window.activeClassroomSocket.emit("request-unmute");
+            isHandRaised = true;
+            raiseHandButton.setAttribute("aria-pressed", "true");
+            raiseHandButton.setAttribute("data-tooltip", "Lower Hand");
+            raiseHandButton.style.color = "#7c3aed";
+            raiseHandButton.classList.add("dc-raise-hand-button--active");
+            return;
+          }
+
+          window.activeClassroomSocket.emit("clear-raise-hand", { userId: window.activeClassroomSocket.id });
+          isHandRaised = false;
+          raiseHandButton.setAttribute("aria-pressed", "false");
+          raiseHandButton.setAttribute("data-tooltip", "Raise Hand");
+          raiseHandButton.style.color = "";
+          raiseHandButton.classList.remove("dc-raise-hand-button--active");
         }
-        raiseHandButton.setAttribute("data-tooltip", "Raised hand");
-        raiseHandButton.style.color = "#7c3aed";
       });
     }
 
@@ -138,18 +156,6 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
       });
     }
 
-    // Deafen/Undeafen button (students only)
-    if (deafenButton && role === "student") {
-      deafenButton.addEventListener("click", () => {
-        const isDeafened = voiceSystem.toggleDeafen();
-        deafenButton.innerHTML = isDeafened
-          ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>' // disabled headphone
-          : '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path></svg>'; // regular headphone
-        
-        deafenButton.setAttribute("data-tooltip", isDeafened ? "Unmute Teacher" : "Mute Teacher");
-        deafenButton.style.color = isDeafened ? "#dc2626" : "#64748b";
-      });
-    }
   };
 
   // Check for socket availability and initialize voice system
@@ -162,9 +168,64 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
     }
   };
 
+  const setupRaiseHandListeners = () => {
+    if (role !== "teacher" || !raiseHandList || !window.activeClassroomSocket) return;
+
+    const renderRaiseHands = (list) => {
+      raiseHandList.innerHTML = "";
+      (list || []).forEach((entry) => {
+        const userId = typeof entry === "string" ? entry : entry.userId;
+        const displayName = (entry && entry.displayName) ? entry.displayName : userId;
+        const li = document.createElement("li");
+        li.className = "dc-raise-hand-item";
+        li.dataset.userId = userId;
+
+        const user = document.createElement("span");
+        user.className = "dc-raise-hand-user";
+        user.textContent = displayName;
+
+        const actions = document.createElement("div");
+        actions.className = "dc-raise-hand-actions";
+
+        const unmuteBtn = document.createElement("button");
+        unmuteBtn.type = "button";
+        unmuteBtn.className = "dc-btn dc-btn-small dc-unmute-btn";
+        unmuteBtn.textContent = "Unmute";
+        unmuteBtn.addEventListener("click", () => {
+          window.activeClassroomSocket.emit("teacher-set-audio-state", { target: userId, muted: false });
+          window.activeClassroomSocket.emit("clear-raise-hand", { userId });
+        });
+
+        const clearBtn = document.createElement("button");
+        clearBtn.type = "button";
+        clearBtn.className = "dc-btn dc-btn-ghost dc-clear-btn";
+        clearBtn.textContent = "Clear";
+        clearBtn.addEventListener("click", () => {
+          window.activeClassroomSocket.emit("clear-raise-hand", { userId });
+        });
+
+        actions.appendChild(unmuteBtn);
+        actions.appendChild(clearBtn);
+        li.appendChild(user);
+        li.appendChild(actions);
+        raiseHandList.appendChild(li);
+      });
+    };
+
+    window.activeClassroomSocket.on("raise-hand-list", renderRaiseHands);
+    window.activeClassroomSocket.on("unmute-request", ({ userId, displayName }) => {
+      const current = Array.from(raiseHandList.querySelectorAll("li")).map((li) => ({
+        userId: li.dataset.userId,
+        displayName: li.querySelector(".dc-raise-hand-user")?.textContent || li.dataset.userId,
+      }));
+      if (!current.some((entry) => entry.userId === userId)) {
+        renderRaiseHands([...current, { userId, displayName }]);
+      }
+    });
+  };
+
   // Start checking for socket connection
   checkAndInitializeVoice();
-
   // Modal functionality
   const exitBtn = wrap.querySelector("#dc-room-exit");
   const modalBackdrop = wrap.querySelector("#exit-modal-backdrop");
@@ -282,7 +343,8 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
     cleanupVoiceSystem,
     muteButton,
     raiseHandButton,
-    deafenButton
+    raiseHandPanel,
+    raiseHandList,
   };
 }
 

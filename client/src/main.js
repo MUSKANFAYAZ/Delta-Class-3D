@@ -455,16 +455,6 @@ async function renderRoute() {
           });
         },
       });
-      if (roomRole === "student" && page.raiseHandButton) {
-        page.raiseHandButton.addEventListener("click", () => {
-          if (window.activeClassroomSocket) {
-            window.activeClassroomSocket.emit("raise-hand");
-            window.activeClassroomSocket.emit("request-unmute");
-          }
-          page.raiseHandButton.setAttribute("data-tooltip", "Raised hand");
-          page.raiseHandButton.style.color = "#7c3aed";
-        });
-      }
       const session = createRuntimeSession(new URLSearchParams(`role=${roomRole}&roomCode=${roomCode}`));
       
       const classroomLoader = createClassroomLoader({
