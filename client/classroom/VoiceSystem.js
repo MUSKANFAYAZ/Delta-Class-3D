@@ -35,7 +35,13 @@ export class VoiceSystem {
     // If student tries to unmute themselves, disallow and request teacher permission
     if (this.currentRole === "student" && !this.isMuted) {
       // revert flag and send request to teacher
-      this.socket.emit("request-unmute");
+      try {
+        const displayName = localStorage.getItem("delta-user-display") || "";
+        this.socket.emit("request-unmute", { displayName });
+      } catch (e) {
+        // best-effort
+        this.socket.emit("request-unmute");
+      }
       // keep muted
       this.isMuted = true;
       return this.isMuted;

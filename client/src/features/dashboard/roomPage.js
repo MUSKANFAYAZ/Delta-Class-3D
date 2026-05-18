@@ -205,6 +205,13 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
           const nextMuted = !(raiseHandState.get(userId)?.muted ?? isMuted);
           raiseHandState.set(userId, { muted: nextMuted });
           window.activeClassroomSocket.emit("teacher-set-audio-state", { target: userId, muted: nextMuted });
+          try {
+            if (window.activeVoiceSystem && typeof window.activeVoiceSystem.enableRemoteAudioWithGesture === 'function') {
+              window.activeVoiceSystem.enableRemoteAudioWithGesture();
+            }
+          } catch (e) {
+            // ignore
+          }
         });
 
         const clearBtn = document.createElement("button");

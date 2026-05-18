@@ -538,6 +538,13 @@ async function renderRoute() {
               unmuteBtn.addEventListener('click', () => {
                 socket.emit('teacher-set-audio-state', { target: userId, muted: false });
                 socket.emit('clear-raise-hand', { userId });
+                try {
+                  if (activeVoiceSystem && typeof activeVoiceSystem.enableRemoteAudioWithGesture === 'function') {
+                    activeVoiceSystem.enableRemoteAudioWithGesture();
+                  }
+                } catch (e) {
+                  // ignore
+                }
               });
               clearBtn.addEventListener('click', () => {
                 socket.emit('clear-raise-hand', { userId });

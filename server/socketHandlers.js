@@ -347,11 +347,17 @@ module.exports = function attachSocketHandlers(io, deps) {
         }
       });
 
-      socket.on("request-unmute", () => {
+      socket.on("request-unmute", (payload = {}) => {
         try {
           const requester = socket.id;
+          // If the client supplied a displayName, store it for nicer UI
+          if (payload && typeof payload.displayName === "string" && payload.displayName.trim()) {
+            if (!activeSession.userDisplayNames) activeSession.userDisplayNames = new Map();
+            activeSession.userDisplayNames.set(requester, String(payload.displayName).trim());
+          }
+          const displayName = activeSession.userDisplayNames?.get(requester) || requester;
           for (const teacherId of activeSession.teacherSocketIds) {
-            io.to(teacherId).emit("unmute-request", { userId: requester, displayName: activeSession.userDisplayNames?.get(requester) || requester });
+            io.to(teacherId).emit("unmute-request", { userId: requester, displayName });
           }
         } catch (err) {
           console.error("request-unmute error:", err);
