@@ -290,9 +290,30 @@ export class VoiceSystem {
         // If this update is about this client
         if (userId === this.currentUserId) {
           if (muted !== undefined) {
-            this.isMuted = Boolean(muted);
-            if (this.localStream) {
-              this.localStream.getAudioTracks().forEach((t) => { t.enabled = !this.isMuted; });
+            // If teacher just unmuted this student but localStream isn't created,
+            // try to initialize the local microphone so audio can be sent.
+            if (muted === false && !this.localStream) {
+              this.initLocalStream().then(() => {
+                this.isMuted = false;
+                if (this.localStream) {
+                  this.localStream.getAudioTracks().forEach((t) => { t.enabled = true; });
+                  // Attach the new local track to any existing peer connections
+                  const track = this.localStream.getAudioTracks()[0];
+                  if (track) {
+                    for (const [peerId, pc] of this.peers.entries()) {
+                      try { pc.addTrack(track, this.localStream); } catch (e) { /* ignore duplicate/add errors */ }
+                    }
+                  }
+                }
+              }).catch((e) => {
+                console.warn('[VoiceSystem] initLocalStream on unmute failed', e);
+                this.isMuted = true;
+              });
+            } else {
+              this.isMuted = Boolean(muted);
+              if (this.localStream) {
+                this.localStream.getAudioTracks().forEach((t) => { t.enabled = !this.isMuted; });
+              }
             }
           }
           if (deafened !== undefined) {
