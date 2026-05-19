@@ -592,10 +592,8 @@ console.log("[STARTUP] Critical environment variables:");
 console.log(`  JWT_SECRET: ${CRITICAL_ENV_VARS.JWT_SECRET ? "✓ SET" : "✗ NOT SET (using fallback)"}`);
 console.log(`  MONGO_URI: ${CRITICAL_ENV_VARS.MONGO_URI ? "✓ SET" : "✗ NOT SET"}`);
 
-// Use MONGO_URI only (Atlas). Ignore Railway's MONGO_URL, DATABASE_URL, etc. to prevent accidental Railway DB writes.
 const MONGO_URI = CRITICAL_ENV_VARS.MONGO_URI;
 if (MONGO_URI) {
-  // Extract host from URI for logging (helps verify Atlas vs Railway)
   let logHost = "";
   try {
     const atIdx = MONGO_URI.indexOf("@");

@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: delta-class3d
+    env: node
+    rootDir: .
+    buildCommand: npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
