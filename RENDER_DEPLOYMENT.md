@@ -1,12 +1,12 @@
 # Render Deployment
 
-This project can run on Render as a single Node web service.
+This project runs on Render as a single Node web service.
 
 ## Service settings
 
 - Service type: Web Service
 - Environment: Node
-- Build command: `npm run build`
+- Build command: `npm install; npm run build`
 - Start command: `npm start`
 - Health check path: `/health`
 
@@ -17,7 +17,7 @@ The repository includes [render.yaml](render.yaml) with the same settings.
 Set these in the Render dashboard:
 
 - `MONGO_URI` - your MongoDB Atlas connection string
-- `JWT_SECRET` - a strong secret for session/auth tokens
+- `JWT_SECRET` - a strong secret for auth tokens
 
 Optional variables:
 
@@ -25,9 +25,9 @@ Optional variables:
 
 ## Notes
 
-- The server listens on `process.env.PORT`, which is what Render provides.
+- The server listens on `process.env.PORT`, which Render provides.
 - The built client is served from `client/dist` when the frontend build exists.
-- The app is configured to use `MONGO_URI` only, so you do not need any Railway-specific database variables.
+- The app uses `MONGO_URI` only, so you do not need any Railway-specific database variables.
 
 ## Deploy flow
 
