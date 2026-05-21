@@ -318,6 +318,15 @@ module.exports = function attachSocketHandlers(io, deps) {
         }
       });
 
+      // Allow clients to request a fresh blackboard snapshot (useful after reconnects)
+      socket.on("request-blackboard", () => {
+        try {
+          socket.emit("blackboard-snapshot", { strokes: activeSession.blackboardStrokes });
+        } catch (err) {
+          if (DEBUG_LOGS) console.warn("Failed to emit blackboard-snapshot:", err);
+        }
+      });
+
       socket.on("clear-raise-hand", ({ userId }) => {
         try {
           const senderIsTeacher = activeSession.teacherSocketIds.has(socket.id);

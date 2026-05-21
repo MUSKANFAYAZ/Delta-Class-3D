@@ -24,8 +24,17 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   }
 
   const canvas = document.createElement("canvas");
-  canvas.width = 2048;
-  canvas.height = 1024;
+  // Reduce resolution on low-bandwidth connections to speed initial load and texture updates
+  if (isStrictLowBandwidth) {
+    canvas.width = 1024;
+    canvas.height = 512;
+  } else if (isLowBandwidth) {
+    canvas.width = 1536;
+    canvas.height = 768;
+  } else {
+    canvas.width = 2048;
+    canvas.height = 1024;
+  }
 
   const context = canvas.getContext("2d", { alpha: false });
   if (!context) {
@@ -482,6 +491,16 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   socket.on("blackboard-clear", onBlackboardClear);
   socket.on("blackboard-snapshot", onBlackboardSnapshot);
 
+  // When socket reconnects, explicitly request a fresh snapshot to ensure we are fully in sync
+  const handleSocketConnect = () => {
+    try {
+      socket.emit("request-blackboard");
+    } catch (err) {
+      // best-effort
+    }
+  };
+  socket.on("connect", handleSocketConnect);
+
   return {
     dispose: () => {
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
@@ -492,6 +511,7 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
       socket.off("blackboard-stroke", onBlackboardStroke);
       socket.off("blackboard-clear", onBlackboardClear);
       socket.off("blackboard-snapshot", onBlackboardSnapshot);
+      socket.off("connect", handleSocketConnect);
 
       window.removeEventListener("resize", onWindowResize);
       panelResizeObserver?.disconnect();
