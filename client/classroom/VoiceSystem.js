@@ -3,6 +3,7 @@ export class VoiceSystem {
     this.socket = socket;
     this.currentUserId = currentUserId;
     this.currentRole = currentRole; // 'teacher' or 'student'
+    this.destroyed = false;
     
     this.peers = new Map(); // userId -> RTCPeerConnection
     this.localStream = null;
@@ -17,6 +18,9 @@ export class VoiceSystem {
     
     // Connection tracking for better multi-user support
     this.peerConnectivityTimeout = new Map(); // userId -> timeoutId
+
+    this.handleSocketConnect = this.handleSocketConnect.bind(this);
+    this.handleSocketDisconnect = this.handleSocketDisconnect.bind(this);
     
     this.setupSocketListeners();
     this.requestExistingPeers();
@@ -28,6 +32,29 @@ export class VoiceSystem {
     } catch (err) {
       console.warn("[VoiceSystem] Failed to request existing peers:", err);
     }
+  }
+
+  handleSocketConnect() {
+    if (this.destroyed) {
+      return;
+    }
+
+    this.currentUserId = this.socket.id || this.currentUserId;
+    this.requestExistingPeers();
+    this.refreshRemoteAudioElements();
+  }
+
+  handleSocketDisconnect(reason) {
+    if (this.destroyed) {
+      return;
+    }
+
+    console.log("[VoiceSystem] Socket disconnected", reason || "");
+
+    this.peerReconnectAttempts.clear();
+    Array.from(this.peers.keys()).forEach((userId) => {
+      this.closePeer(userId);
+    });
   }
 
   setMuted(nextMuted) {
@@ -178,6 +205,8 @@ export class VoiceSystem {
   }
 
   setupSocketListeners() {
+    this.socket.on("connect", this.handleSocketConnect);
+
     this.socket.on("peer-joined", async ({ userId, role }) => {
       if (userId === this.currentUserId) {
         console.log("[VoiceSystem] Received our own user ID confirmation");
@@ -357,10 +386,7 @@ export class VoiceSystem {
     });
     
     // Handle multiple connections more gracefully
-    this.socket.on("disconnect", () => {
-      console.log("[VoiceSystem] Socket disconnected");
-      this.destroy();
-    });
+    this.socket.on("disconnect", this.handleSocketDisconnect);
   }
 
   async initPeerConnection(userId, isInitiator) {
@@ -569,6 +595,9 @@ export class VoiceSystem {
     // Clear all timeouts
     this.peerConnectivityTimeout.forEach(timeoutId => clearTimeout(timeoutId));
     this.peerConnectivityTimeout.clear();
+
+    this.handleSocketDisconnect("destroy");
+    this.destroyed = true;
     
     // Close all peer connections
     this.peers.forEach((pc, userId) => {
