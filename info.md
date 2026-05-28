@@ -479,7 +479,7 @@ Effectiveness estimates (approximate)
 Comparison with Zoom / Google Meet
 - Architecture:
 	- Delta-Class-3D: browser-client heavy; Socket.IO signaling + direct WebRTC P2P for audio (no built-in SFU). Server handles signaling and optional persistence only.
-	- Zoom/Google Meet: use centralized media relays (SFU) to mix/forward streams; clients send one high-quality uplink and receive optimized downlinks (simulcast/scale). SFU reduces each client's upstream burden when many participants are present and allows server-side bandwidth management.
+	- Zoom/Google Meet: use centralized media relays (SFU) to mix/forward streams; clients send one high-quality uplink and receive optimized downlinks (simulcast/scalable layers). SFU reduces each client's upstream burden when many participants are present and allows server-side bandwidth management.
 - Bandwidth & Quality:
 	- Zoom/Meet: adaptive codecs, simulcast, congestion control, and prioritized layers yield more stable audio/video quality across varying conditions. Audio quality typically uses higher bitrates and better QoS, resulting in clearer voice and video where bandwidth permits.
 	- Delta-Class-3D: can achieve very low bandwidth usage for audio by aggressive SDP tuning, but P2P scaling causes the teacher (or each peer) to bear multiple upstreams if many attendees connect—this can be a limitation in multi-party calls.
@@ -498,6 +498,11 @@ Advantages of Delta-Class-3D on 2G/3G
 
 Disadvantages vs Zoom/Meet
 - Audio scaling: P2P audio is efficient for small groups but scales poorly; with many peers the aggregate upstream requirements increase (or teacher must forward), making SFU approaches superior for medium/large classes.
+
+Current mitigation in this codebase (interim)
+- Server emits `voice-scaling-state` with participant count and a mesh threshold (`VOICE_MESH_PARTICIPANT_LIMIT`, default 12).
+- Client `VoiceSystem` switches to `teacher-priority-mesh` in larger rooms (students connect to teacher peers only), which reduces total mesh fan-out and signaling pressure.
+- A runtime banner warns that SFU/media relay is recommended for stable large-class teacher uplink.
 - No server media relay (TURN) by default: if peers cannot establish direct connections due to NAT/firewall, media may fail unless TURN/relay is introduced (which adds server bandwidth cost).
 - Lower perceived audio/video fidelity: aggressive bitrate caps and mono/low-sample-rate audio reduce intelligibility compared to optimized SFU codecs at higher rates.
 - More client CPU work: clients still render Three.js scenes (even low-poly) and perform canvas operations which may tax weaker devices; Zoom/Meet offload more to native apps with optimized pipelines.
