@@ -71,6 +71,7 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   let laserHideTimer = null;
   let lastLaserSentAt = 0;
   let laserDot = null;
+  let eraserPreview = null;
   const pendingRemoteStrokes = [];
   let currentPointerId = null;
   let textureDirty = false;
@@ -179,6 +180,53 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
     laserDot.style.transform = "translate(-50%, -50%) scale(0)";
   }
 
+  function ensureEraserPreview() {
+    if (eraserPreview) return eraserPreview;
+
+    eraserPreview = document.createElement("div");
+    eraserPreview.id = "blackboard-eraser-preview";
+    Object.assign(eraserPreview.style, {
+      position: "fixed",
+      left: "0",
+      top: "0",
+      width: "24px",
+      height: "24px",
+      borderRadius: "999px",
+      transform: "translate(-50%, -50%) scale(1)",
+      opacity: "0",
+      pointerEvents: "none",
+      zIndex: "10044",
+      border: "2px solid rgba(59, 130, 246, 0.95)",
+      background: "rgba(59, 130, 246, 0.12)",
+      boxShadow: "0 0 0 1px rgba(255,255,255,0.35), 0 0 18px rgba(59,130,246,0.18)",
+      transition: "opacity 90ms ease, transform 90ms ease, width 90ms ease, height 90ms ease",
+      willChange: "transform, opacity, left, top, width, height",
+      mixBlendMode: "multiply",
+    });
+
+    const host = document.getElementById("app") || document.body;
+    host.appendChild(eraserPreview);
+    return eraserPreview;
+  }
+
+  function hideEraserPreview() {
+    if (!eraserPreview) return;
+    eraserPreview.style.opacity = "0";
+  }
+
+  function showEraserPreview(clientX, clientY, thickness) {
+    const preview = ensureEraserPreview();
+    const diameter = Math.max(18, Math.round(thickness * 2.5));
+    preview.style.left = `${clientX}px`;
+    preview.style.top = `${clientY}px`;
+    preview.style.width = `${diameter}px`;
+    preview.style.height = `${diameter}px`;
+    preview.style.marginLeft = "0";
+    preview.style.marginTop = "0";
+    preview.style.opacity = "1";
+    preview.style.transform = "translate(-50%, -50%) scale(1)";
+  }
+
   function showLaser(clientX, clientY) {
     const dot = ensureLaserDot();
     dot.style.left = `${clientX}px`;
@@ -228,9 +276,12 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
     const fromY = (1 - from.v) * canvas.height;
     const toX = to.u * canvas.width;
     const toY = (1 - to.v) * canvas.height;
+    const effectiveThickness = mode === "eraser"
+      ? Math.max(18, Math.round(thickness * 2.5))
+      : thickness;
 
     context.strokeStyle = mode === "eraser" ? BOARD_COLOR : normalizeColor(color, DEFAULT_PEN_COLOR);
-    context.lineWidth = thickness;
+    context.lineWidth = effectiveThickness;
     context.lineCap = "round";
     context.lineJoin = "round";
     context.beginPath();
@@ -304,6 +355,12 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
 
     emitLaserPointer(event);
 
+    if (activeTool === "eraser") {
+      showEraserPreview(event.clientX, event.clientY, activeThickness);
+    } else {
+      hideEraserPreview();
+    }
+
     if (!drawing || !lastDrawnPoint) return;
 
     const point = resolveBoardPoint(event);
@@ -333,6 +390,9 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   function onPointerUp() {
     drawing = false;
     lastDrawnPoint = null;
+    if (activeTool !== "eraser") {
+      hideEraserPreview();
+    }
     try {
       if (currentPointerId != null) {
         renderer.domElement.releasePointerCapture?.(currentPointerId);
@@ -346,6 +406,7 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   function onPointerLeave() {
     drawing = false;
     lastDrawnPoint = null;
+    hideEraserPreview();
     socket.emit("blackboard-laser", { active: false });
   }
 
@@ -794,6 +855,9 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
       }
       if (laserDot?.parentElement) {
         laserDot.parentElement.removeChild(laserDot);
+      }
+      if (eraserPreview?.parentElement) {
+        eraserPreview.parentElement.removeChild(eraserPreview);
       }
     },
   };
