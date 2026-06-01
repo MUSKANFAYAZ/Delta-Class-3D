@@ -12,6 +12,27 @@ module.exports = function attachSocketHandlers(io, deps) {
     DEBUG_LOGS,
   } = deps;
 
+  const parsedVoiceLimit = Number.parseInt(process.env.VOICE_MESH_PARTICIPANT_LIMIT || "12", 10);
+  const VOICE_MESH_PARTICIPANT_LIMIT = Number.isFinite(parsedVoiceLimit) && parsedVoiceLimit > 0
+    ? parsedVoiceLimit
+    : 12;
+
+  function emitVoiceScalingState(roomCode) {
+    const participantCount = Number(io.sockets.adapter.rooms.get(roomCode)?.size || 0);
+    const recommendRelay = participantCount > VOICE_MESH_PARTICIPANT_LIMIT;
+
+    io.to(roomCode).emit("voice-scaling-state", {
+      roomCode,
+      participantCount,
+      meshParticipantLimit: VOICE_MESH_PARTICIPANT_LIMIT,
+      recommendRelay,
+      topology: recommendRelay ? "teacher-priority-mesh" : "full-mesh",
+      message: recommendRelay
+        ? `Large voice room detected (${participantCount} participants). Use SFU/media relay for best teacher uplink stability.`
+        : `Mesh voice mode active (${participantCount} participants).`,
+    });
+  }
+
   io.on("connection", async (socket) => {
     const role = getRole(socket);
     const roomCode = normalizeRoomCode(
@@ -230,6 +251,7 @@ module.exports = function attachSocketHandlers(io, deps) {
         }
 
         io.to(roomCode).emit("peer-left", socket.id);
+        emitVoiceScalingState(roomCode);
       });
 
 
@@ -244,14 +266,17 @@ module.exports = function attachSocketHandlers(io, deps) {
       socket.broadcast.to(roomCode).emit("peer-joined", { userId: socket.id, role });
 
       emitExistingPeers(socket, roomCode, activeSession);
+      emitVoiceScalingState(roomCode);
 
       socket.on("request-existing-peers", () => {
         emitExistingPeers(socket, roomCode, activeSession);
+        emitVoiceScalingState(roomCode);
       });
 
       socket.on("webrtc-offer", ({ target, offer }) => {
         if (DEBUG_LOGS) console.log(`WebRTC offer from ${socket.id} to ${target}`);
-        io.to(target).emit("webrtc-offer", { caller: socket.id, offer });
+        const callerRole = activeSession.teacherSocketIds.has(socket.id) ? "teacher" : "student";
+        io.to(target).emit("webrtc-offer", { caller: socket.id, callerRole, offer });
       });
 
       socket.on("webrtc-answer", ({ target, answer }) => {
@@ -334,6 +359,15 @@ module.exports = function attachSocketHandlers(io, deps) {
           if (DEBUG_LOGS) console.log(`User ${socket.id} raised hand in ${roomCode}`);
         } catch (err) {
           console.error("raise-hand error:", err);
+        }
+      });
+
+      // Allow clients to request a fresh blackboard snapshot (useful after reconnects)
+      socket.on("request-blackboard", () => {
+        try {
+          socket.emit("blackboard-snapshot", { strokes: activeSession.blackboardStrokes });
+        } catch (err) {
+          if (DEBUG_LOGS) console.warn("Failed to emit blackboard-snapshot:", err);
         }
       });
 

@@ -28,6 +28,7 @@ export function createClassroomLoader({
   let bootRequested = false;
   let classroomModulesPromise = null;
   let bootStartedAtMs = 0;
+  let removeSocketRecoveryHandlers = () => {};
 
   function warmup() {
     if (!classroomModulesPromise) {
@@ -61,45 +62,75 @@ export function createClassroomLoader({
         // Helper to create a fresh socket instance (used for forced clean reconnects)
         const createSocket = () => io({
           path: "/socket.io",
-          // Prefer websocket first to avoid polling resume errors; allow polling fallback when websocket unavailable.
+          // Prefer websocket first but keep polling as a fallback so reconnect can recover after idle tab/background throttling.
           transports: ["websocket", "polling"],
           auth: { role, roomCode, canWriteBlackboard },
           query: { role, roomCode, canWriteBlackboard: String(canWriteBlackboard) },
           reconnection: true,
+          reconnectionAttempts: Infinity,
+          reconnectionDelay: 500,
+          reconnectionDelayMax: 4000,
+          timeout: 20000,
         });
 
         let socket = createSocket();
         activeSocket = socket;
         window.activeClassroomSocket = socket;
 
-        // Track consecutive connect errors and perform a forced clean reconnect
-        let connectErrorCount = 0;
-        const MAX_CONNECT_ERROR_BEFORE_RESET = 3;
-        const setupConnectErrorHandler = (skt) => {
-          skt.on("connect_error", (err) => {
-            connectErrorCount += 1;
-            console.warn("Socket connect_error", { count: connectErrorCount, err });
-            if (connectErrorCount >= MAX_CONNECT_ERROR_BEFORE_RESET) {
-              console.warn("Exceeded connect error threshold - forcing clean reconnect");
-              try {
-                // Remove listeners and disconnect
-                skt.removeAllListeners();
-                skt.disconnect();
-              } catch (e) {
-                console.warn("Error during socket cleanup:", e);
-              }
+        const resumeSocket = () => {
+          if (activeSocket !== socket) {
+            return;
+          }
 
-              // Create a fresh socket and replace references
-              socket = createSocket();
-              activeSocket = socket;
-              window.activeClassroomSocket = socket;
-              connectErrorCount = 0;
-
-              // Re-attach the handler to the new socket so further errors are monitored
-              setupConnectErrorHandler(socket);
-
-              // Re-emit connect to start normal flow; consumers listen for socket.connect
+          if (document.visibilityState === "visible" && socket.disconnected) {
+            try {
               socket.connect();
+            } catch (err) {
+              console.warn("Unable to resume classroom socket:", err);
+            }
+          }
+        };
+
+        const handleVisibilityChange = () => resumeSocket();
+        const handleOnline = () => resumeSocket();
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+        window.addEventListener("online", handleOnline);
+        removeSocketRecoveryHandlers = () => {
+          document.removeEventListener("visibilitychange", handleVisibilityChange);
+          window.removeEventListener("online", handleOnline);
+        };
+
+        // Track consecutive connect errors and perform a forced clean reconnect
+        const setupConnectErrorHandler = (skt) => {
+          skt.on("reconnect_attempt", (attempt) => {
+            if (activeSocket === skt) {
+              setStatus(`Reconnecting live sync (attempt ${attempt}).`, "Connecting");
+            }
+          });
+
+          skt.on("reconnect", () => {
+            if (activeSocket === skt) {
+              setStatus("Live sync restored.", "Connected", true);
+            }
+          });
+
+          skt.on("reconnect_error", (err) => {
+            if (activeSocket === skt) {
+              console.warn("Socket reconnect_error", err);
+              setStatus("Live sync is retrying after a network interruption.", "Connecting");
+            }
+          });
+
+          skt.on("reconnect_failed", () => {
+            if (activeSocket === skt) {
+              setStatus("Live sync could not reconnect yet. Keep the tab open and try again.", "Offline");
+            }
+          });
+
+          skt.on("connect_error", (err) => {
+            if (activeSocket === skt) {
+              console.warn("Socket connect_error", err);
+              setStatus("Live sync is reconnecting after a temporary disconnect.", "Connecting");
             }
           });
         };
@@ -143,6 +174,7 @@ export function createClassroomLoader({
         });
       } catch (error) {
         bootPromise = null;
+        removeSocketRecoveryHandlers();
         loadButton.disabled = false;
         loadButton.textContent = "Retry load";
         setStatus("Unable to load the classroom right now.", "Offline");
@@ -168,6 +200,7 @@ export function createClassroomLoader({
   }
 
   function disconnect() {
+    removeSocketRecoveryHandlers();
     if (activeSocket) {
       try {
         activeSocket.disconnect();

@@ -145,10 +145,14 @@ async function startSocketClassroom({ role, roomCode }) {
 
   const socket = io({
     path: "/socket.io",
-    transports: ["websocket"],
+    transports: ["websocket", "polling"],
     auth: { role, roomCode, displayName: localStorage.getItem("delta-user-display") || "" },
     query: { role, roomCode },
     reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 500,
+    reconnectionDelayMax: 4000,
+    timeout: 20000,
   });
 
   return await new Promise((resolve, reject) => {

@@ -25,9 +25,24 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
     return { dispose: () => {} };
   }
 
+  // Connection detection (used to tune canvas / emission sizes)
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  const networkType = String(connection?.effectiveType || "").toLowerCase();
+  const isLowBandwidth = Boolean(lowBandwidth) || Boolean(connection?.saveData) || networkType === "slow-2g" || networkType === "2g" || networkType === "3g";
+  const isStrictLowBandwidth = Boolean(strictLowBandwidth) || networkType === "slow-2g" || networkType === "2g";
+
   const canvas = document.createElement("canvas");
-  canvas.width = 2048;
-  canvas.height = 1024;
+  // Reduce resolution on low-bandwidth connections to speed initial load and texture updates
+  if (isStrictLowBandwidth) {
+    canvas.width = 1024;
+    canvas.height = 512;
+  } else if (isLowBandwidth) {
+    canvas.width = 1536;
+    canvas.height = 768;
+  } else {
+    canvas.width = 2048;
+    canvas.height = 1024;
+  }
 
   const context = canvas.getContext("2d", { alpha: false });
   if (!context) {
@@ -41,10 +56,7 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
 
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
-  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-  const networkType = String(connection?.effectiveType || "").toLowerCase();
-  const isLowBandwidth = Boolean(lowBandwidth) || Boolean(connection?.saveData) || networkType === "slow-2g" || networkType === "2g" || networkType === "3g";
-  const isStrictLowBandwidth = Boolean(strictLowBandwidth) || networkType === "slow-2g" || networkType === "2g";
+  
 
   let drawing = false;
   let lastDrawnPoint = null;
@@ -57,6 +69,9 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   let lastLaserSentAt = 0;
   let laserDot = null;
   const pendingRemoteStrokes = [];
+  let currentPointerId = null;
+  let textureDirty = false;
+  let textureUpdateTimer = null;
 
   const emitIntervalMs = isStrictLowBandwidth ? 180 : (isLowBandwidth ? 110 : 32);
   const minDistance = isStrictLowBandwidth ? 0.015 : (isLowBandwidth ? 0.008 : 0.002);
@@ -185,7 +200,15 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
     context.moveTo(fromX, fromY);
     context.lineTo(toX, toY);
     context.stroke();
-    texture.needsUpdate = true;
+    // throttle texture uploads to GPU to avoid blocking main thread
+    textureDirty = true;
+    if (!textureUpdateTimer) {
+      textureUpdateTimer = window.setTimeout(() => {
+        texture.needsUpdate = true;
+        textureDirty = false;
+        textureUpdateTimer = null;
+      }, 40);
+    }
   }
 
   function applyStroke(stroke) {
@@ -237,7 +260,6 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
     lastDrawnPoint = point;
     lastSentAt = performance.now();
     renderer.domElement.setPointerCapture?.(event.pointerId);
-    emitLaserPointer(event);
   }
 
   function onPointerMove(event) {
@@ -274,6 +296,14 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   function onPointerUp() {
     drawing = false;
     lastDrawnPoint = null;
+    try {
+      if (currentPointerId != null) {
+        renderer.domElement.releasePointerCapture?.(currentPointerId);
+      }
+    } catch (e) {
+      // ignore
+    }
+    currentPointerId = null;
   }
 
   function onPointerLeave() {
@@ -305,9 +335,26 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
     const strokes = Array.isArray(snapshot.strokes)
       ? snapshot.strokes
       : (Array.isArray(snapshot.ops) ? snapshot.ops : []);
-    for (const stroke of strokes) {
-      applyStroke(stroke);
-    }
+    // Apply strokes in batches so the UI remains responsive
+    if (!strokes.length) return;
+    const batchSize = Math.max(60, Math.floor(strokes.length / 6));
+    let idx = 0;
+    const applyBatch = () => {
+      const end = Math.min(idx + batchSize, strokes.length);
+      for (; idx < end; idx++) {
+        applyStroke(strokes[idx]);
+      }
+      // force a texture upload for this batch
+      texture.needsUpdate = true;
+      if (idx < strokes.length) {
+        if (typeof requestIdleCallback === 'function') {
+          requestIdleCallback(applyBatch, { timeout: 200 });
+        } else {
+          setTimeout(applyBatch, 0);
+        }
+      }
+    };
+    applyBatch();
   }
 
   function onBlackboardLaser(payload = {}) {
@@ -578,10 +625,21 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
     window.addEventListener("pointercancel", onPointerUp);
   }
 
+  // If the tab is hidden while drawing, release pointer capture and stop drawing so UI buttons remain interactive
+  const handleVisibilityChange = () => {
+    if (document.visibilityState !== "visible") {
+      try {
+        onPointerUp();
+      } catch (e) {
+        // ignore
+      }
+    }
+  };
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+
   socket.on("blackboard-stroke", onBlackboardStroke);
   socket.on("blackboard-clear", onBlackboardClear);
   socket.on("blackboard-snapshot", onBlackboardSnapshot);
-  socket.on("blackboard-laser", onBlackboardLaser);
 
   return {
     dispose: () => {
@@ -594,7 +652,6 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
       socket.off("blackboard-stroke", onBlackboardStroke);
       socket.off("blackboard-clear", onBlackboardClear);
       socket.off("blackboard-snapshot", onBlackboardSnapshot);
-      socket.off("blackboard-laser", onBlackboardLaser);
 
       window.removeEventListener("resize", onWindowResize);
       panelResizeObserver?.disconnect();

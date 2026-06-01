@@ -3,6 +3,7 @@ export class VoiceSystem {
     this.socket = socket;
     this.currentUserId = currentUserId;
     this.currentRole = currentRole; // 'teacher' or 'student'
+    this.destroyed = false;
     
     this.peers = new Map(); // userId -> RTCPeerConnection
     this.localStream = null;
@@ -17,9 +18,76 @@ export class VoiceSystem {
     
     // Connection tracking for better multi-user support
     this.peerConnectivityTimeout = new Map(); // userId -> timeoutId
+    this.teacherOnlyMesh = false;
+    this.meshParticipantLimit = 12;
+    this.voiceScalingBannerId = "dc-voice-scaling-banner";
+
+    this.handleSocketConnect = this.handleSocketConnect.bind(this);
+    this.handleSocketDisconnect = this.handleSocketDisconnect.bind(this);
     
     this.setupSocketListeners();
     this.requestExistingPeers();
+  }
+
+  shouldConnectToPeer(peer) {
+    const peerId = typeof peer === "string" ? peer : peer?.userId;
+    const peerRole = typeof peer === "string" ? null : peer?.role;
+
+    if (!peerId || peerId === this.currentUserId) {
+      return false;
+    }
+
+    // In larger rooms, prefer teacher-priority mesh to reduce total P2P fan-out.
+    // This is an interim mode until SFU/media relay is enabled.
+    if (this.teacherOnlyMesh && this.currentRole === "student") {
+      return peerRole === "teacher";
+    }
+
+    return true;
+  }
+
+  upsertVoiceScalingBanner(payload = {}) {
+    const recommendRelay = Boolean(payload.recommendRelay);
+    const participantCount = Number(payload.participantCount || 0);
+    const meshLimit = Number(payload.meshParticipantLimit || this.meshParticipantLimit || 12);
+
+    let banner = document.getElementById(this.voiceScalingBannerId);
+    if (!recommendRelay) {
+      if (banner) banner.remove();
+      return;
+    }
+
+    if (!banner) {
+      banner = document.createElement("div");
+      banner.id = this.voiceScalingBannerId;
+      banner.style.position = "fixed";
+      banner.style.left = "50%";
+      banner.style.top = "12px";
+      banner.style.transform = "translateX(-50%)";
+      banner.style.zIndex = "9999";
+      banner.style.padding = "10px 14px";
+      banner.style.borderRadius = "10px";
+      banner.style.background = "rgba(124, 58, 237, 0.95)";
+      banner.style.color = "#ffffff";
+      banner.style.fontSize = "12px";
+      banner.style.lineHeight = "1.35";
+      banner.style.boxShadow = "0 10px 30px rgba(15, 23, 42, 0.3)";
+      banner.style.maxWidth = "92vw";
+      banner.style.textAlign = "center";
+      document.body.appendChild(banner);
+    }
+
+    banner.textContent = `Large voice class (${participantCount} participants). Mesh limit is ${meshLimit}. For stable teacher uplink, switch to SFU/media relay.`;
+  }
+
+  applyVoiceScalingState(payload = {}) {
+    this.meshParticipantLimit = Number(payload.meshParticipantLimit || this.meshParticipantLimit || 12);
+    this.teacherOnlyMesh = String(payload.topology || "") === "teacher-priority-mesh";
+    this.upsertVoiceScalingBanner(payload);
+
+    if (payload?.recommendRelay) {
+      console.warn("[VoiceSystem]", payload.message || "SFU/media relay is recommended for this room size.");
+    }
   }
 
   requestExistingPeers() {
@@ -28,6 +96,29 @@ export class VoiceSystem {
     } catch (err) {
       console.warn("[VoiceSystem] Failed to request existing peers:", err);
     }
+  }
+
+  handleSocketConnect() {
+    if (this.destroyed) {
+      return;
+    }
+
+    this.currentUserId = this.socket.id || this.currentUserId;
+    this.requestExistingPeers();
+    this.refreshRemoteAudioElements();
+  }
+
+  handleSocketDisconnect(reason) {
+    if (this.destroyed) {
+      return;
+    }
+
+    console.log("[VoiceSystem] Socket disconnected", reason || "");
+
+    this.peerReconnectAttempts.clear();
+    Array.from(this.peers.keys()).forEach((userId) => {
+      this.closePeer(userId);
+    });
   }
 
   setMuted(nextMuted) {
@@ -159,11 +250,14 @@ export class VoiceSystem {
   }
 
   async connectToPeerList(peers = []) {
-    const peerIds = peers
-      .map((peer) => (typeof peer === "string" ? peer : peer?.userId))
-      .filter((peerId) => peerId && peerId !== this.currentUserId);
+    const normalizedPeers = peers
+      .map((peer) => (typeof peer === "string"
+        ? { userId: peer, role: null }
+        : { userId: peer?.userId, role: peer?.role || null }))
+      .filter((peer) => this.shouldConnectToPeer(peer));
 
-    for (const peerId of peerIds) {
+    for (const peer of normalizedPeers) {
+      const peerId = peer.userId;
       try {
         // Stagger connection initiation to prevent simultaneous offers/answers
         // This prevents ICE candidate flooding and SDP negotiation failures
@@ -178,6 +272,8 @@ export class VoiceSystem {
   }
 
   setupSocketListeners() {
+    this.socket.on("connect", this.handleSocketConnect);
+
     this.socket.on("peer-joined", async ({ userId, role }) => {
       if (userId === this.currentUserId) {
         console.log("[VoiceSystem] Received our own user ID confirmation");
@@ -185,6 +281,20 @@ export class VoiceSystem {
       }
       
       console.log(`[VoiceSystem] Peer joined: ${userId} (role: ${role})`);
+
+      if (!this.shouldConnectToPeer({ userId, role })) {
+        return;
+      }
+
+      try {
+        await this.initPeerConnection(userId, true);
+      } catch (err) {
+        console.warn(`[VoiceSystem] Could not connect to joined peer ${userId}:`, err);
+      }
+    });
+
+    this.socket.on("voice-scaling-state", (payload) => {
+      this.applyVoiceScalingState(payload || {});
     });
 
     this.socket.on("existing-peers", async (peers) => {
@@ -196,8 +306,17 @@ export class VoiceSystem {
       await this.connectToPeerList(peers);
     });
 
-    this.socket.on("webrtc-offer", async ({ caller, offer }) => {
+    this.socket.on("webrtc-offer", async ({ caller, callerRole, offer }) => {
       try {
+        if (!this.shouldConnectToPeer({ userId: caller, role: callerRole || null })) {
+          if (this.teacherOnlyMesh && this.currentRole === "student") {
+            if (this.peers.has(caller)) {
+              this.closePeer(caller);
+            }
+            return;
+          }
+        }
+
         console.log(`[VoiceSystem] Received offer from ${caller}`);
         const pc = await this.initPeerConnection(caller, false);
         
@@ -357,10 +476,7 @@ export class VoiceSystem {
     });
     
     // Handle multiple connections more gracefully
-    this.socket.on("disconnect", () => {
-      console.log("[VoiceSystem] Socket disconnected");
-      this.destroy();
-    });
+    this.socket.on("disconnect", this.handleSocketDisconnect);
   }
 
   async initPeerConnection(userId, isInitiator) {
@@ -569,6 +685,9 @@ export class VoiceSystem {
     // Clear all timeouts
     this.peerConnectivityTimeout.forEach(timeoutId => clearTimeout(timeoutId));
     this.peerConnectivityTimeout.clear();
+
+    this.handleSocketDisconnect("destroy");
+    this.destroyed = true;
     
     // Close all peer connections
     this.peers.forEach((pc, userId) => {
@@ -592,6 +711,11 @@ export class VoiceSystem {
       a.srcObject = null;
       a.remove();
     });
+
+    const scalingBanner = document.getElementById(this.voiceScalingBannerId);
+    if (scalingBanner) {
+      scalingBanner.remove();
+    }
     
     // Close audio context if created
     if (this.audioContext && this.audioContext.state !== "closed") {
