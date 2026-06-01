@@ -32,7 +32,7 @@ export function setupImageSync({
       laserButton.textContent = "Laser";
       laserButton.dataset.active = "false";
       laserButton.style.backgroundColor = "rgba(241, 245, 249, 0.12)";
-      laserButton.style.color = "#cbd5e1";
+      laserButton.style.color = "#0f172a";
     }
   }
 

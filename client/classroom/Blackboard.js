@@ -89,7 +89,7 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
     } else {
       laserButton.textContent = "Laser";
       laserButton.style.background = "rgba(241, 245, 249, 0.12)";
-      laserButton.style.color = "#cbd5e1";
+      laserButton.style.color = "#0f172a";
     }
   }
 
@@ -576,27 +576,7 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
         clearBoard(true);
       });
 
-      laserButton = document.createElement("button");
-      laserButton.type = "button";
-      Object.assign(laserButton.style, {
-        border: "1px solid rgba(148, 163, 184, 0.35)",
-        background: "rgba(241, 245, 249, 0.12)",
-        color: "#e2e8f0",
-        borderRadius: "999px",
-        padding: "6px 10px",
-        cursor: "pointer",
-        fontWeight: "600",
-        fontSize: "11px",
-      });
-      laserButton.addEventListener("click", () => {
-        const nextEnabled = !laserModeEnabled;
-        window.dispatchEvent(new CustomEvent("dc-blackboard-laser-mode", {
-          detail: { enabled: nextEnabled },
-        }));
-      });
-
       actionRow.appendChild(eraserButton);
-      actionRow.appendChild(laserButton);
       actionRow.appendChild(clearButton);
 
       panel.appendChild(title);
