@@ -525,6 +525,7 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
         sizeButton.addEventListener("click", () => {
           activeThickness = size;
           activeTool = "pen";
+          updateEraserControlVisibility();
           for (const btn of sizeRow.querySelectorAll("button")) {
             btn.style.background = "rgba(241, 245, 249, 0.12)";
             btn.style.color = "#e2e8f0";
@@ -554,10 +555,72 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
         fontWeight: "600",
         fontSize: "11px",
       });
+      // Eraser toggles and exposes a dynamic size control when active
+      let eraserSize = Math.max(12, activeThickness);
+      const eraserSizeControl = document.createElement("div");
+      Object.assign(eraserSizeControl.style, {
+        display: "none",
+        marginTop: "8px",
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+      });
+
+      const eraserSizeLabel = document.createElement("div");
+      eraserSizeLabel.textContent = "Eraser size:";
+      Object.assign(eraserSizeLabel.style, {
+        fontSize: "11px",
+        color: "#e2e8f0",
+        whiteSpace: "nowrap",
+      });
+
+      const eraserRange = document.createElement("input");
+      eraserRange.type = "range";
+      eraserRange.min = "4";
+      eraserRange.max = "64";
+      eraserRange.step = "1";
+      eraserRange.value = String(eraserSize);
+      Object.assign(eraserRange.style, {
+        width: "120px",
+      });
+
+      const eraserValue = document.createElement("div");
+      eraserValue.textContent = String(eraserSize);
+      Object.assign(eraserValue.style, {
+        minWidth: "30px",
+        textAlign: "right",
+        color: "#e2e8f0",
+        fontSize: "12px",
+        fontWeight: "600",
+      });
+
+      eraserRange.addEventListener("input", (e) => {
+        const v = Number(e.target.value) || 4;
+        eraserSize = v;
+        eraserValue.textContent = String(v);
+        if (activeTool === "eraser") {
+          activeThickness = Math.max(1, Math.min(64, v));
+        }
+      });
+
+      eraserSizeControl.appendChild(eraserSizeLabel);
+      eraserSizeControl.appendChild(eraserRange);
+      eraserSizeControl.appendChild(eraserValue);
+
+      function updateEraserControlVisibility() {
+        if (eraserSizeControl) {
+          eraserSizeControl.style.display = activeTool === "eraser" ? "flex" : "none";
+        }
+      }
+
       eraserButton.addEventListener("click", () => {
         activeTool = activeTool === "eraser" ? "pen" : "eraser";
+        if (activeTool === "eraser") {
+          activeThickness = Math.max(1, Math.min(64, eraserSize));
+        }
         eraserButton.style.background = activeTool === "eraser" ? "#f59e0b" : "rgba(241, 245, 249, 0.12)";
         eraserButton.style.color = activeTool === "eraser" ? "#111827" : "#e2e8f0";
+        updateEraserControlVisibility();
       });
 
       const clearButton = document.createElement("button");
@@ -583,6 +646,8 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
       panel.appendChild(colorRow);
       panel.appendChild(sizeRow);
       panel.appendChild(actionRow);
+      // place eraser size control under the action row
+      panel.appendChild(eraserSizeControl);
 
       if (colorButtons.length) {
         colorButtons[0].style.outline = "2px solid #f8fafc";
