@@ -66,6 +66,7 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   let activeThickness = 5;
   let laserModeEnabled = false;
   let laserButton = null;
+  let presentationActive = false;
   let flushTimer = null;
   let laserHideTimer = null;
   let lastLaserSentAt = 0;
@@ -88,13 +89,28 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
     } else {
       laserButton.textContent = "Laser";
       laserButton.style.background = "rgba(241, 245, 249, 0.12)";
-      laserButton.style.color = "#e2e8f0";
+      laserButton.style.color = "#cbd5e1";
     }
   }
 
   function setLaserMode(enabled) {
     laserModeEnabled = Boolean(enabled);
     syncLaserButtonState();
+    try {
+      updateToolsVisibility();
+    } catch (e) {
+      // ignore until tools panel exists
+    }
+  }
+
+  function updateToolsVisibility() {
+    const panel = document.getElementById("blackboard-tools-root");
+    if (!panel) return;
+    if (presentationActive && laserModeEnabled) {
+      panel.style.display = "none";
+    } else {
+      panel.style.display = "";
+    }
   }
 
   function flushRemoteStrokes() {
@@ -395,6 +411,17 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
 
     showLaser(x, y);
   }
+
+  // Keep the whiteboard tools hidden when presenting and laser mode is active
+  socket.on("presentation-start", () => {
+    presentationActive = true;
+    updateToolsVisibility();
+  });
+
+  socket.on("presentation-stop", () => {
+    presentationActive = false;
+    updateToolsVisibility();
+  });
 
   function buildPanel() {
     const existing = document.getElementById("blackboard-tools-root");
