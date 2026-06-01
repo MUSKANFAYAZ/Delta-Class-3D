@@ -106,7 +106,7 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   function updateToolsVisibility() {
     const panel = document.getElementById("blackboard-tools-root");
     if (!panel) return;
-    if (presentationActive && laserModeEnabled) {
+    if (presentationActive) {
       panel.style.display = "none";
     } else {
       panel.style.display = "";
@@ -422,6 +422,12 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
     presentationActive = false;
     updateToolsVisibility();
   });
+
+  const handlePresentationActive = (ev) => {
+    presentationActive = Boolean(ev?.detail?.active);
+    updateToolsVisibility();
+  };
+  window.addEventListener("dc-presentation-active", handlePresentationActive);
 
   function buildPanel() {
     const existing = document.getElementById("blackboard-tools-root");

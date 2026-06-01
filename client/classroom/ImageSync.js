@@ -287,6 +287,8 @@ export function setupImageSync({
     }
 
     appRoot.appendChild(presentationOverlay);
+    // Notify other UI that presentation overlay is now available
+    window.dispatchEvent(new CustomEvent("dc-presentation-active", { detail: { active: true } }));
     return presentationOverlay;
   }
 
@@ -333,6 +335,7 @@ export function setupImageSync({
     if (presentationOverlay) {
       presentationOverlay.style.display = "none";
     }
+    window.dispatchEvent(new CustomEvent("dc-presentation-active", { detail: { active: false } }));
   });
 
   const handleLaserModeChange = (event) => {
