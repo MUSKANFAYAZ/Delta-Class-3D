@@ -7,6 +7,122 @@ export function setupImageSync({
   let presentationOverlay = null;
   let currentImages = [];
   let currentSlideIndex = 0;
+  let laserButton = null;
+  let laserDot = null;
+  let laserHideTimer = null;
+  let laserEnabled = false;
+  let lastLaserSentAt = 0;
+  let lastLaserPoint = null;
+  const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  const networkType = String(connection?.effectiveType || "").toLowerCase();
+  const isStrictLowBandwidth = Boolean(connection?.saveData) || networkType === "slow-2g" || networkType === "2g";
+  const isLowBandwidth = Boolean(connection?.saveData) || isStrictLowBandwidth || networkType === "3g";
+  const laserThrottleMs = isStrictLowBandwidth ? 220 : (isLowBandwidth ? 140 : 80);
+  const laserMinDelta = isStrictLowBandwidth ? 10 : (isLowBandwidth ? 6 : 4);
+
+  function syncLaserButtonState() {
+    if (!laserButton) return;
+
+    if (laserEnabled) {
+      laserButton.textContent = isStrictLowBandwidth ? "Laser 2G" : "Laser On";
+      laserButton.dataset.active = "true";
+      laserButton.style.backgroundColor = "#f59e0b";
+      laserButton.style.color = "#111827";
+    } else {
+      laserButton.textContent = "Laser";
+      laserButton.dataset.active = "false";
+      laserButton.style.backgroundColor = "rgba(241, 245, 249, 0.12)";
+      laserButton.style.color = "#e2e8f0";
+    }
+  }
+
+  function ensureLaserDot() {
+    if (laserDot) return laserDot;
+
+    laserDot = document.createElement("div");
+    laserDot.id = "presentation-laser-dot";
+    Object.assign(laserDot.style, {
+      position: "fixed",
+      left: "0",
+      top: "0",
+      width: "18px",
+      height: "18px",
+      borderRadius: "999px",
+      transform: "translate(-50%, -50%) scale(0)",
+      opacity: "0",
+      pointerEvents: "none",
+      zIndex: "10005",
+      background: "radial-gradient(circle, rgba(255,255,255,0.98) 0%, rgba(251,191,36,0.95) 35%, rgba(249,115,22,0.72) 72%, rgba(249,115,22,0.06) 100%)",
+      boxShadow: "0 0 0 2px rgba(255,255,255,0.18), 0 0 18px rgba(249,115,22,0.75)",
+      transition: "opacity 120ms ease, transform 120ms ease",
+      willChange: "transform, opacity, left, top",
+    });
+
+    const host = document.getElementById("app") || document.body;
+    host.appendChild(laserDot);
+    return laserDot;
+  }
+
+  function hideLaser() {
+    if (!laserDot) return;
+    laserDot.style.opacity = "0";
+    laserDot.style.transform = "translate(-50%, -50%) scale(0)";
+  }
+
+  function stopLaser() {
+    laserEnabled = false;
+    lastLaserPoint = null;
+    if (laserHideTimer) {
+      window.clearTimeout(laserHideTimer);
+      laserHideTimer = null;
+    }
+    hideLaser();
+    syncLaserButtonState();
+    if (presentationOverlay) {
+      presentationOverlay.style.cursor = "default";
+    }
+    if (role === "teacher") {
+      socket.emit("blackboard-laser", { active: false });
+    }
+  }
+
+  function showLaser(clientX, clientY) {
+    const dot = ensureLaserDot();
+    dot.style.left = `${clientX}px`;
+    dot.style.top = `${clientY}px`;
+    dot.style.opacity = "1";
+    dot.style.transform = "translate(-50%, -50%) scale(1)";
+
+    if (laserHideTimer) {
+      window.clearTimeout(laserHideTimer);
+    }
+
+    laserHideTimer = window.setTimeout(() => {
+      hideLaser();
+    }, 650);
+  }
+
+  function emitLaserPointer(event) {
+    if (!laserEnabled || event.target?.closest?.(".presentation-controls")) return;
+
+    const now = performance.now();
+    const nextPoint = { x: Math.round(event.clientX), y: Math.round(event.clientY) };
+    const tooSoon = now - lastLaserSentAt < laserThrottleMs;
+    const movedLittle = lastLaserPoint
+      ? Math.abs(nextPoint.x - lastLaserPoint.x) < laserMinDelta && Math.abs(nextPoint.y - lastLaserPoint.y) < laserMinDelta
+      : false;
+
+    if (tooSoon && movedLittle) return;
+
+    lastLaserSentAt = now;
+    lastLaserPoint = nextPoint;
+    showLaser(nextPoint.x, nextPoint.y);
+    socket.emit("blackboard-laser", {
+      x: nextPoint.x,
+      y: nextPoint.y,
+      active: true,
+    });
+  }
 
   // UI for full-screen viewer
   function ensurePresentationOverlay() {
@@ -26,6 +142,7 @@ export function setupImageSync({
       flexDirection: "column",
       alignItems: "center",
       justifyContent: "center",
+      touchAction: "none",
     });
 
     const img = document.createElement("img");
@@ -35,12 +152,14 @@ export function setupImageSync({
       maxHeight: "90%",
       objectFit: "contain",
       transition: "opacity 0.3s ease-in-out",
+      pointerEvents: "none",
     });
 
     presentationOverlay.appendChild(img);
 
     if (role === "teacher") {
       const controls = document.createElement("div");
+      controls.className = "presentation-controls";
       Object.assign(controls.style, {
         position: "absolute",
         bottom: "20px",
@@ -49,7 +168,8 @@ export function setupImageSync({
         backgroundColor: "var(--surface)",
         padding: "10px 20px",
         borderRadius: "8px",
-        boxShadow: "0 4px 6px rgba(0,0,0,0.1)"
+        boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
+        zIndex: "2",
       });
 
       const prevBtn = document.createElement("button");
@@ -110,10 +230,33 @@ export function setupImageSync({
         updateMicBtnState();
       };
 
+      laserButton = document.createElement("button");
+      laserButton.className = "dc-btn dc-btn-secondary";
+      laserButton.onclick = () => {
+        laserEnabled = !laserEnabled;
+        lastLaserPoint = null;
+        if (laserHideTimer) {
+          window.clearTimeout(laserHideTimer);
+          laserHideTimer = null;
+        }
+
+        if (laserEnabled) {
+          syncLaserButtonState();
+          if (presentationOverlay) {
+            presentationOverlay.style.cursor = "crosshair";
+          }
+        } else {
+          stopLaser();
+          return;
+        }
+      };
+      syncLaserButtonState();
+
       const exitBtn = document.createElement("button");
       exitBtn.className = "dc-btn dc-btn-danger";
       exitBtn.textContent = "Stop Broadcast";
       exitBtn.onclick = () => {
+        stopLaser();
         presentationOverlay.style.display = "none";
         socket.emit("presentation-stop");
       };
@@ -121,8 +264,13 @@ export function setupImageSync({
       controls.appendChild(prevBtn);
       controls.appendChild(nextBtn);
       controls.appendChild(micBtn);
+      controls.appendChild(laserButton);
       controls.appendChild(exitBtn);
       presentationOverlay.appendChild(controls);
+
+      presentationOverlay.addEventListener("pointermove", emitLaserPointer, { passive: true });
+      presentationOverlay.addEventListener("pointerleave", stopLaser);
+      presentationOverlay.addEventListener("pointercancel", stopLaser);
     }
 
     appRoot.appendChild(presentationOverlay);
@@ -168,6 +316,7 @@ export function setupImageSync({
   });
 
   socket.on("presentation-stop", () => {
+    stopLaser();
     if (presentationOverlay) {
       presentationOverlay.style.display = "none";
     }
