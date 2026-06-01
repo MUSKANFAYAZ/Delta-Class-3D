@@ -162,6 +162,25 @@ module.exports = function attachSocketHandlers(io, deps) {
         io.to(roomCode).emit("blackboard-clear");
       });
 
+      socket.on("blackboard-laser", (payload = {}) => {
+        if (role !== "teacher") return;
+
+        const active = payload.active !== false;
+        const nextPayload = active
+          ? {
+              x: Number(payload.x),
+              y: Number(payload.y),
+              active: true,
+            }
+          : { active: false };
+
+        if (active && (!Number.isFinite(nextPayload.x) || !Number.isFinite(nextPayload.y))) {
+          return;
+        }
+
+        io.to(roomCode).emit("blackboard-laser", nextPayload);
+      });
+
       socket.on("presentation-start", (payload) => {
         if (role === "teacher") {
           activeSession.presentation = payload;

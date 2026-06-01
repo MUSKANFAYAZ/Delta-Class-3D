@@ -59,6 +59,12 @@ export function startClassroom(socket, role, options = {}) {
       strictLowBandwidth,
     });
 
+    const onBlackboardDrawStart = () => {
+      cameraSystem.setBlackboardView(true);
+      cameraSystem.requestRenderOnce();
+    };
+    window.addEventListener("dc-blackboard-draw-start", onBlackboardDrawStart);
+
     // Render an initial frame immediately so UI doesn't appear blank
     cameraSystem.requestRenderOnce();
 

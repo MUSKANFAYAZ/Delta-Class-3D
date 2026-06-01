@@ -4,6 +4,8 @@ const BOARD_COLOR = "#f8fafc";
 const DEFAULT_PEN_COLOR = "#111827";
 const PEN_COLORS = ["#111827", "#2563eb", "#dc2626", "#059669", "#7c3aed", "#ea580c"];
 const PEN_SIZES = [3, 5, 8, 12];
+const LASER_THROTTLE_MS = 90;
+const LASER_HIDE_DELAY_MS = 650;
 
 function round3(value) {
   return Math.round(value * 1000) / 1000;
@@ -51,6 +53,9 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   let activeColor = DEFAULT_PEN_COLOR;
   let activeThickness = 5;
   let flushTimer = null;
+  let laserHideTimer = null;
+  let lastLaserSentAt = 0;
+  let laserDot = null;
   const pendingRemoteStrokes = [];
 
   const emitIntervalMs = isStrictLowBandwidth ? 180 : (isLowBandwidth ? 110 : 32);
@@ -87,6 +92,69 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
     if (shouldEmit) {
       socket.emit("blackboard-clear");
     }
+  }
+
+  function ensureLaserDot() {
+    if (laserDot) return laserDot;
+
+    laserDot = document.createElement("div");
+    laserDot.id = "blackboard-laser-dot";
+    Object.assign(laserDot.style, {
+      position: "fixed",
+      left: "0",
+      top: "0",
+      width: "18px",
+      height: "18px",
+      borderRadius: "999px",
+      transform: "translate(-50%, -50%) scale(0)",
+      opacity: "0",
+      pointerEvents: "none",
+      zIndex: "10045",
+      background: "radial-gradient(circle, rgba(255,255,255,0.98) 0%, rgba(251,191,36,0.95) 35%, rgba(249,115,22,0.72) 72%, rgba(249,115,22,0.06) 100%)",
+      boxShadow: "0 0 0 2px rgba(255,255,255,0.18), 0 0 18px rgba(249,115,22,0.75)",
+      transition: "opacity 120ms ease, transform 120ms ease",
+      willChange: "transform, opacity, left, top",
+    });
+
+    const host = document.getElementById("app") || document.body;
+    host.appendChild(laserDot);
+    return laserDot;
+  }
+
+  function hideLaser() {
+    if (!laserDot) return;
+    laserDot.style.opacity = "0";
+    laserDot.style.transform = "translate(-50%, -50%) scale(0)";
+  }
+
+  function showLaser(clientX, clientY) {
+    const dot = ensureLaserDot();
+    dot.style.left = `${clientX}px`;
+    dot.style.top = `${clientY}px`;
+    dot.style.opacity = "1";
+    dot.style.transform = "translate(-50%, -50%) scale(1)";
+
+    if (laserHideTimer) {
+      window.clearTimeout(laserHideTimer);
+    }
+
+    laserHideTimer = window.setTimeout(() => {
+      hideLaser();
+    }, LASER_HIDE_DELAY_MS);
+  }
+
+  function emitLaserPointer(event) {
+    if (!canWrite || !event) return;
+
+    const now = performance.now();
+    if (now - lastLaserSentAt < LASER_THROTTLE_MS) return;
+    lastLaserSentAt = now;
+
+    socket.emit("blackboard-laser", {
+      x: event.clientX,
+      y: event.clientY,
+      active: true,
+    });
   }
 
   function getDistance(a, b) {
@@ -163,14 +231,21 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
     const point = resolveBoardPoint(event);
     if (!point) return;
 
+    window.dispatchEvent(new CustomEvent("dc-blackboard-draw-start"));
+
     drawing = true;
     lastDrawnPoint = point;
     lastSentAt = performance.now();
     renderer.domElement.setPointerCapture?.(event.pointerId);
+    emitLaserPointer(event);
   }
 
   function onPointerMove(event) {
-    if (!drawing || !canWrite || !lastDrawnPoint) return;
+    if (!canWrite) return;
+
+    emitLaserPointer(event);
+
+    if (!drawing || !lastDrawnPoint) return;
 
     const point = resolveBoardPoint(event);
     if (!point) return;
@@ -201,6 +276,12 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
     lastDrawnPoint = null;
   }
 
+  function onPointerLeave() {
+    drawing = false;
+    lastDrawnPoint = null;
+    socket.emit("blackboard-laser", { active: false });
+  }
+
   function onBlackboardStroke(stroke) {
     queueRemoteStroke(stroke);
   }
@@ -227,6 +308,24 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
     for (const stroke of strokes) {
       applyStroke(stroke);
     }
+  }
+
+  function onBlackboardLaser(payload = {}) {
+    const active = payload.active !== false;
+    if (!active) {
+      if (laserHideTimer) {
+        window.clearTimeout(laserHideTimer);
+        laserHideTimer = null;
+      }
+      hideLaser();
+      return;
+    }
+
+    const x = Number(payload.x);
+    const y = Number(payload.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+
+    showLaser(x, y);
   }
 
   function buildPanel() {
@@ -474,6 +573,7 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   if (canWrite) {
     renderer.domElement.addEventListener("pointerdown", onPointerDown, { passive: true });
     renderer.domElement.addEventListener("pointermove", onPointerMove, { passive: true });
+    renderer.domElement.addEventListener("pointerleave", onPointerLeave);
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerUp);
   }
@@ -481,17 +581,20 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   socket.on("blackboard-stroke", onBlackboardStroke);
   socket.on("blackboard-clear", onBlackboardClear);
   socket.on("blackboard-snapshot", onBlackboardSnapshot);
+  socket.on("blackboard-laser", onBlackboardLaser);
 
   return {
     dispose: () => {
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
       renderer.domElement.removeEventListener("pointermove", onPointerMove);
+      renderer.domElement.removeEventListener("pointerleave", onPointerLeave);
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onPointerUp);
 
       socket.off("blackboard-stroke", onBlackboardStroke);
       socket.off("blackboard-clear", onBlackboardClear);
       socket.off("blackboard-snapshot", onBlackboardSnapshot);
+      socket.off("blackboard-laser", onBlackboardLaser);
 
       window.removeEventListener("resize", onWindowResize);
       panelResizeObserver?.disconnect();
@@ -500,9 +603,15 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
       if (flushTimer) {
         window.clearTimeout(flushTimer);
       }
+      if (laserHideTimer) {
+        window.clearTimeout(laserHideTimer);
+      }
 
       if (toolsPanel?.parentElement) {
         toolsPanel.parentElement.removeChild(toolsPanel);
+      }
+      if (laserDot?.parentElement) {
+        laserDot.parentElement.removeChild(laserDot);
       }
     },
   };
