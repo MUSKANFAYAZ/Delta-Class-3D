@@ -86,6 +86,32 @@ export function setupImageSync({
     }
   }
 
+  function applyLaserMode(enabled) {
+    laserEnabled = Boolean(enabled);
+    lastLaserPoint = null;
+    if (laserHideTimer) {
+      window.clearTimeout(laserHideTimer);
+      laserHideTimer = null;
+    }
+
+    if (laserEnabled) {
+      syncLaserButtonState();
+      if (presentationOverlay) {
+        presentationOverlay.style.cursor = "crosshair";
+      }
+      return;
+    }
+
+    hideLaser();
+    syncLaserButtonState();
+    if (presentationOverlay) {
+      presentationOverlay.style.cursor = "default";
+    }
+    if (role === "teacher") {
+      socket.emit("blackboard-laser", { active: false });
+    }
+  }
+
   function showLaser(clientX, clientY) {
     const dot = ensureLaserDot();
     dot.style.left = `${clientX}px`;
@@ -233,22 +259,9 @@ export function setupImageSync({
       laserButton = document.createElement("button");
       laserButton.className = "dc-btn dc-btn-secondary";
       laserButton.onclick = () => {
-        laserEnabled = !laserEnabled;
-        lastLaserPoint = null;
-        if (laserHideTimer) {
-          window.clearTimeout(laserHideTimer);
-          laserHideTimer = null;
-        }
-
-        if (laserEnabled) {
-          syncLaserButtonState();
-          if (presentationOverlay) {
-            presentationOverlay.style.cursor = "crosshair";
-          }
-        } else {
-          stopLaser();
-          return;
-        }
+        window.dispatchEvent(new CustomEvent("dc-blackboard-laser-mode", {
+          detail: { enabled: !laserEnabled },
+        }));
       };
       syncLaserButtonState();
 
@@ -321,6 +334,21 @@ export function setupImageSync({
       presentationOverlay.style.display = "none";
     }
   });
+
+  const handleLaserModeChange = (event) => {
+    if (role !== "teacher") return;
+    const nextEnabled = Boolean(event?.detail?.enabled);
+    if (nextEnabled === laserEnabled) {
+      syncLaserButtonState();
+      if (presentationOverlay) {
+        presentationOverlay.style.cursor = laserEnabled ? "crosshair" : "default";
+      }
+      return;
+    }
+
+    applyLaserMode(nextEnabled);
+  };
+  window.addEventListener("dc-blackboard-laser-mode", handleLaserModeChange);
 
   // Teacher UI setup
   if (role === "teacher" && presentationButton) {
@@ -443,4 +471,5 @@ export function setupImageSync({
       fileInput.value = "";
     });
   }
+
 }

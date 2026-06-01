@@ -64,6 +64,8 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   let activeTool = "pen";
   let activeColor = DEFAULT_PEN_COLOR;
   let activeThickness = 5;
+  let laserModeEnabled = false;
+  let laserButton = null;
   let flushTimer = null;
   let laserHideTimer = null;
   let lastLaserSentAt = 0;
@@ -75,6 +77,25 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
 
   const emitIntervalMs = isStrictLowBandwidth ? 180 : (isLowBandwidth ? 110 : 32);
   const minDistance = isStrictLowBandwidth ? 0.015 : (isLowBandwidth ? 0.008 : 0.002);
+
+  function syncLaserButtonState() {
+    if (!laserButton) return;
+
+    if (laserModeEnabled) {
+      laserButton.textContent = isStrictLowBandwidth ? "Laser 2G" : "Laser On";
+      laserButton.style.background = "#f59e0b";
+      laserButton.style.color = "#111827";
+    } else {
+      laserButton.textContent = "Laser";
+      laserButton.style.background = "rgba(241, 245, 249, 0.12)";
+      laserButton.style.color = "#e2e8f0";
+    }
+  }
+
+  function setLaserMode(enabled) {
+    laserModeEnabled = Boolean(enabled);
+    syncLaserButtonState();
+  }
 
   function flushRemoteStrokes() {
     if (!pendingRemoteStrokes.length) return;
@@ -159,7 +180,7 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   }
 
   function emitLaserPointer(event) {
-    if (!canWrite || !event) return;
+    if (!canWrite || !laserModeEnabled || !event) return;
 
     const now = performance.now();
     if (now - lastLaserSentAt < LASER_THROTTLE_MS) return;
@@ -522,7 +543,27 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
         clearBoard(true);
       });
 
+      laserButton = document.createElement("button");
+      laserButton.type = "button";
+      Object.assign(laserButton.style, {
+        border: "1px solid rgba(148, 163, 184, 0.35)",
+        background: "rgba(241, 245, 249, 0.12)",
+        color: "#e2e8f0",
+        borderRadius: "999px",
+        padding: "6px 10px",
+        cursor: "pointer",
+        fontWeight: "600",
+        fontSize: "11px",
+      });
+      laserButton.addEventListener("click", () => {
+        const nextEnabled = !laserModeEnabled;
+        window.dispatchEvent(new CustomEvent("dc-blackboard-laser-mode", {
+          detail: { enabled: nextEnabled },
+        }));
+      });
+
       actionRow.appendChild(eraserButton);
+      actionRow.appendChild(laserButton);
       actionRow.appendChild(clearButton);
 
       panel.appendChild(title);
@@ -617,6 +658,11 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
 
   window.addEventListener("resize", onWindowResize);
 
+  const handleLaserModeChange = (event) => {
+    setLaserMode(Boolean(event?.detail?.enabled));
+  };
+  window.addEventListener("dc-blackboard-laser-mode", handleLaserModeChange);
+
   if (canWrite) {
     renderer.domElement.addEventListener("pointerdown", onPointerDown, { passive: true });
     renderer.domElement.addEventListener("pointermove", onPointerMove, { passive: true });
@@ -654,6 +700,7 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
       socket.off("blackboard-snapshot", onBlackboardSnapshot);
 
       window.removeEventListener("resize", onWindowResize);
+      window.removeEventListener("dc-blackboard-laser-mode", handleLaserModeChange);
       panelResizeObserver?.disconnect();
 
       pendingRemoteStrokes.length = 0;
