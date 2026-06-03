@@ -341,8 +341,12 @@ module.exports = function attachSocketHandlers(io, deps) {
         }
       });
 
-      socket.on("raise-hand", () => {
+      socket.on("raise-hand", (payload = {}) => {
         try {
+          if (payload && typeof payload.displayName === "string" && payload.displayName.trim()) {
+            if (!activeSession.userDisplayNames) activeSession.userDisplayNames = new Map();
+            activeSession.userDisplayNames.set(socket.id, String(payload.displayName).trim());
+          }
           activeSession.raiseHands.add(socket.id);
           const list = Array.from(activeSession.raiseHands).map((id) => {
             const audioState = activeSession.userAudioStates?.get(id) || { muted: true, deafened: false };

@@ -137,6 +137,53 @@ async function getOrCreateClassroom(code, additionalData = {}) {
   return classroom;
 }
 
+function normalizeParticipantName(value, fallback) {
+  const text = String(value || "").trim();
+  return text || String(fallback || "").trim() || "Unknown participant";
+}
+
+async function resolveParticipantDetails(classroom, activeSession = null) {
+  const participantNames = [];
+  const seen = new Set();
+
+  const addName = (value) => {
+    const name = normalizeParticipantName(value);
+    const key = name.toLowerCase();
+    if (!name || seen.has(key)) return;
+    seen.add(key);
+    participantNames.push(name);
+  };
+
+  if (activeSession?.userDisplayNames instanceof Map) {
+    for (const [, displayName] of activeSession.userDisplayNames.entries()) {
+      addName(displayName);
+    }
+  }
+
+  const classroomAssignments = classroom?.studentAssignments instanceof Map
+    ? Array.from(classroom.studentAssignments.keys())
+    : Object.keys(classroom?.studentAssignments || {});
+
+  const teacherIds = classroom?.createdBy ? [String(classroom.createdBy)] : [];
+  const knownIds = Array.from(new Set([...classroomAssignments, ...teacherIds].map((value) => String(value).trim()).filter(Boolean)));
+
+  if (knownIds.length > 0) {
+    try {
+      const users = await User.find({ _id: { $in: knownIds } }).select("name userId role").lean();
+      for (const user of users || []) {
+        addName(user?.name || user?.userId || user?._id);
+      }
+    } catch (error) {
+      if (DEBUG_LOGS) console.warn("[participant lookup] failed:", error?.message || error);
+    }
+  }
+
+  return {
+    participantNames,
+    participants: participantNames.length,
+  };
+}
+
 function createActiveSessionFromClassroom(classroom) {
   return {
     studentAssignments: new Map(),
@@ -254,6 +301,8 @@ app.post("/auth/classrooms", authMiddleware, async (req, res) => {
     
     if (DEBUG_LOGS) console.log(`[POST /auth/classrooms] Created/Updated classroom ${code} by user ${req.user.sub}, createdBy in DB: ${classroom.createdBy}`);
     
+    const participantDetails = await resolveParticipantDetails(classroom);
+
     return res.status(exists ? 200 : 201).json({
       ok: true,
       code: classroom.code,
@@ -263,7 +312,8 @@ app.post("/auth/classrooms", authMiddleware, async (req, res) => {
       capacity: classroom.capacity,
       info: classroom.info,
       canDelete: String(classroom.createdBy) === String(req.user.sub),
-      participants: (classroom.studentAssignments?.size || 0) + (classroom.teacherPositions?.size || 0),
+      participants: participantDetails.participants || (classroom.studentAssignments?.size || 0) + (classroom.teacherPositions?.size || 0),
+      participantNames: participantDetails.participantNames,
     });
   } catch (error) {
     console.error("[POST /auth/classrooms] Error creating classroom:", error?.message || error, error?.stack);
@@ -275,11 +325,11 @@ app.get("/auth/classrooms", authMiddleware, async (req, res) => {
   try {
     const userId = String(req.user?.sub || "");
     const role = String(req.user?.role || "");
-    
+
     if (DEBUG_LOGS) console.log(`[GET /auth/classrooms] User: ${userId}, Role: ${role}`);
-    
+
     let classrooms;
-    
+
     if (role === "teacher") {
       // Teachers see only classrooms they created
       classrooms = await Classroom.find({ createdBy: userId })
@@ -292,7 +342,7 @@ app.get("/auth/classrooms", authMiddleware, async (req, res) => {
         .sort({ createdAt: -1 })
         .limit(100)
         .lean();
-      
+
       classrooms = allClassrooms.filter((classroom) => {
         const studentAssignmentKeys = Object.keys(classroom.studentAssignments || {});
         return studentAssignmentKeys.includes(userId);
@@ -301,23 +351,27 @@ app.get("/auth/classrooms", authMiddleware, async (req, res) => {
 
     if (DEBUG_LOGS) console.log(`[GET /auth/classrooms] Found ${classrooms.length} classrooms`);
 
+    const classroomsWithParticipants = await Promise.all(classrooms.map(async (classroom) => {
+      const code = String(classroom.code || "").toLowerCase();
+      const activeSession = activeClassrooms.get(code);
+      const hasCreator = Boolean(classroom.createdBy);
+      const participantDetails = await resolveParticipantDetails(classroom, activeSession);
+      return {
+        code,
+        subject: classroom.subject || "",
+        timing: classroom.timing || "",
+        capacity: classroom.capacity || "",
+        info: classroom.info || "",
+        createdAt: classroom.createdAt || classroom.created_at || null,
+        teacherPresent: Boolean(activeSession?.teacherPresent),
+        participants: participantDetails.participants || (classroom.studentAssignments?.size || 0) + (classroom.teacherPositions?.size || 0),
+        participantNames: participantDetails.participantNames,
+        canDelete: (hasCreator && String(classroom.createdBy || "") === userId) || (!hasCreator && role === "teacher"),
+      };
+    }));
+
     return res.json({
-      classrooms: classrooms.map((classroom) => {
-        const code = String(classroom.code || "").toLowerCase();
-        const activeSession = activeClassrooms.get(code);
-        const hasCreator = Boolean(classroom.createdBy);
-        return {
-          code,
-          subject: classroom.subject || "",
-          timing: classroom.timing || "",
-          capacity: classroom.capacity || "",
-          info: classroom.info || "",
-          createdAt: classroom.createdAt || classroom.created_at || null,
-          teacherPresent: Boolean(activeSession?.teacherPresent),
-          participants: (classroom.studentAssignments?.size || 0) + (classroom.teacherPositions?.size || 0),
-          canDelete: (hasCreator && String(classroom.createdBy || "") === userId) || (!hasCreator && role === "teacher"),
-        };
-      }),
+      classrooms: classroomsWithParticipants,
     });
   } catch (error) {
     console.error("[GET /auth/classrooms] Error fetching classrooms:", error?.message || error, error?.stack);
@@ -339,6 +393,8 @@ app.get("/auth/classrooms/:code", async (req, res) => {
       && user?.sub
       && String(classroom.createdBy) === String(user.sub)
     );
+    const participantDetails = await resolveParticipantDetails(classroom, activeClassrooms.get(code));
+
     return res.json({
       exists: Boolean(classroom),
       code,
@@ -351,6 +407,7 @@ app.get("/auth/classrooms/:code", async (req, res) => {
       participants: classroom
         ? (classroom.studentAssignments?.size || 0) + (classroom.teacherPositions?.size || 0)
         : 0,
+      participantNames: participantDetails.participantNames,
     });
   } catch (error) {
     console.error("Error fetching classroom:", error);

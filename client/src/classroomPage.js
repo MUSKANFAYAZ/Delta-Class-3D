@@ -61,6 +61,15 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
         <ul id="raise-hand-list" class="dc-raise-hand-list"></ul>
       </aside>
       ` : ``}
+
+      <div class="dc-classroom-tools" id="dc-classroom-tools">
+        <button type="button" class="dc-classroom-tool-btn" id="dc-open-discussion" data-tooltip="Group discussion">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4v-4H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"></path></svg>
+        </button>
+        <button type="button" class="dc-classroom-tool-btn" id="dc-open-notes" data-tooltip="Notes sharing">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M8 13h8"></path><path d="M8 17h8"></path></svg>
+        </button>
+      </div>
     </div>
 
     <!-- Reload Warning Modal -->
@@ -117,8 +126,24 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
 
   const raiseHandPanel = document.getElementById("raise-hand-panel");
   const raiseHandList = document.getElementById("raise-hand-list");
+  const discussionButton = document.getElementById("dc-open-discussion");
+  const notesButton = document.getElementById("dc-open-notes");
+  const classroomQuery = new URLSearchParams((window.location.hash.split("?")[1] || ""));
+  const classroomCode = classroomQuery.get("code") || classroomQuery.get("roomCode") || "";
   const raiseHandState = new Map();
   let raiseHandListenersBound = false;
+
+  if (discussionButton && classroomCode) {
+    discussionButton.addEventListener("click", () => {
+      window.location.hash = `/group-discussion?role=${role}&code=${encodeURIComponent(classroomCode)}`;
+    });
+  }
+
+  if (notesButton && classroomCode) {
+    notesButton.addEventListener("click", () => {
+      window.location.hash = `/notes?role=${role}&code=${encodeURIComponent(classroomCode)}`;
+    });
+  }
 
   const setupRaiseHandListeners = () => {
     if (raiseHandListenersBound || role !== "teacher" || !raiseHandList || !window.activeClassroomSocket) return;
@@ -296,8 +321,9 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
     raiseHandButton.addEventListener("click", () => {
       if (window.activeClassroomSocket) {
         if (!isHandRaised) {
-          window.activeClassroomSocket.emit("raise-hand");
-          window.activeClassroomSocket.emit("request-unmute");
+            const displayName = localStorage.getItem("delta-user-display") || "";
+            window.activeClassroomSocket.emit("raise-hand", { displayName });
+            window.activeClassroomSocket.emit("request-unmute", { displayName });
           isHandRaised = true;
           raiseHandButton.setAttribute("aria-pressed", "true");
           raiseHandButton.setAttribute("data-tooltip", "Lower Hand");

@@ -176,6 +176,12 @@ export function mountDashboard(
       card.setAttribute("role", "button");
       card.setAttribute("tabindex", "0");
 
+      const participantNames = Array.isArray(room.participantNames) ? room.participantNames : [];
+      const participantSummary = Number(room.participants || participantNames.length || 0);
+      const participantListMarkup = participantNames.length
+        ? participantNames.map((name) => `<li>${name}</li>`).join("")
+        : "<li>No participant names available yet</li>";
+
       let extraInfo = "";
       if (room.subject || room.timing) {
         extraInfo =
@@ -192,12 +198,18 @@ export function mountDashboard(
           </div>
           <h3 class="dc-room-code-lg">${room.code}</h3>
           ${extraInfo}
+          <details class="dc-room-participants" ${participantSummary ? "" : "hidden"}>
+            <summary class="dc-room-participants-summary">Participants (${participantSummary})</summary>
+            <ul class="dc-room-participants-list">
+              ${participantListMarkup}
+            </ul>
+          </details>
           <p class="dc-room-meta">Saved: ${formatDate(room.at)}</p>
         `;
 
       card.addEventListener("click", (e) => {
         // Prevent trigger if clicking modular components inside the card
-        if (e.target.closest(".btn-delete-room")) return;
+        if (e.target.closest(".btn-delete-room") || e.target.closest(".dc-room-participants")) return;
         
         onRoomSelected?.({
           roomCode: room.code,

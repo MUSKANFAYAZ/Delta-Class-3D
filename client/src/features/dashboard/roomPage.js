@@ -59,6 +59,15 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
         </aside>
       ` : ""}
 
+      <div class="dc-classroom-tools" id="dc-classroom-tools">
+        <button type="button" class="dc-classroom-tool-btn" id="dc-open-discussion" data-tooltip="Group discussion">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4v-4H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"></path></svg>
+        </button>
+        <button type="button" class="dc-classroom-tool-btn" id="dc-open-notes" data-tooltip="Notes sharing">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M8 13h8"></path><path d="M8 17h8"></path></svg>
+        </button>
+      </div>
+
     </main>
 
     
@@ -91,8 +100,50 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
   const raiseHandButton = wrap.querySelector("#raise-hand-button");
   const raiseHandPanel = wrap.querySelector("#raise-hand-panel");
   const raiseHandList = wrap.querySelector("#raise-hand-list");
+  const roomTools = wrap.querySelector("#dc-classroom-tools");
+  const openDiscussionBtn = wrap.querySelector("#dc-open-discussion");
+  const openNotesBtn = wrap.querySelector("#dc-open-notes");
+  const noticeBanner = document.createElement("div");
+  noticeBanner.className = "dc-room-notice";
+  noticeBanner.hidden = true;
+  wrap.appendChild(noticeBanner);
   let raiseHandListenersBound = false;
   const raiseHandState = new Map();
+  const roomCodeParam = roomCode;
+
+  const setMuteButtonState = (isMuted) => {
+    if (!muteButton) return;
+    muteButton.innerHTML = isMuted
+      ? '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>'
+      : '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
+    muteButton.setAttribute("data-tooltip", isMuted ? "Unmute Mic" : "Mute Mic");
+    muteButton.style.color = isMuted ? "#dc2626" : "#16a34a";
+  };
+
+  const showNotice = (message) => {
+    if (!noticeBanner) return;
+    noticeBanner.textContent = message;
+    noticeBanner.hidden = !message;
+    if (!message) return;
+    window.clearTimeout(showNotice._timer);
+    showNotice._timer = window.setTimeout(() => {
+      if (noticeBanner.isConnected) noticeBanner.hidden = true;
+    }, 3500);
+  };
+
+  if (openDiscussionBtn) {
+    openDiscussionBtn.addEventListener("click", () => {
+      if (!roomCodeParam) return;
+      window.location.hash = `/group-discussion?role=${role}&code=${encodeURIComponent(roomCodeParam)}`;
+    });
+  }
+
+  if (openNotesBtn) {
+    openNotesBtn.addEventListener("click", () => {
+      if (!roomCodeParam) return;
+      window.location.hash = `/notes?role=${role}&code=${encodeURIComponent(roomCodeParam)}`;
+    });
+  }
 
   // Initialize Voice System when socket becomes available
   const initializeVoiceSystem = async () => {
@@ -126,8 +177,9 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
       raiseHandButton.addEventListener("click", () => {
         if (window.activeClassroomSocket) {
           if (!isHandRaised) {
-            window.activeClassroomSocket.emit("raise-hand");
-            window.activeClassroomSocket.emit("request-unmute");
+            const displayName = localStorage.getItem("delta-user-display") || "";
+            window.activeClassroomSocket.emit("raise-hand", { displayName });
+            window.activeClassroomSocket.emit("request-unmute", { displayName });
             isHandRaised = true;
             raiseHandButton.setAttribute("aria-pressed", "true");
             raiseHandButton.setAttribute("data-tooltip", "Lower Hand");
@@ -148,14 +200,24 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
 
     // Mute/Unmute button
     if (muteButton) {
+      setMuteButtonState(Boolean(voiceSystem.isMuted));
       muteButton.addEventListener("click", () => {
         const isMuted = voiceSystem.toggleMute();
+        setMuteButtonState(isMuted);
+        showNotice(isMuted ? "Microphone muted." : "Microphone unmuted.");
         muteButton.innerHTML = isMuted
           ? '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>' // mic-off
           : '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>'; // mic-on
-        
-        muteButton.setAttribute("data-tooltip", isMuted ? "Unmute Mic" : "Mute Mic");
-        muteButton.style.color = isMuted ? "#dc2626" : "#16a34a";
+        setMuteButtonState(isMuted);
+      });
+
+      window.activeClassroomSocket?.on("audio-state-change", ({ userId, muted, by }) => {
+        if (userId !== window.activeClassroomSocket.id) return;
+        const isMuted = Boolean(muted);
+        setMuteButtonState(isMuted);
+        if (by) {
+          showNotice(isMuted ? "Teacher muted your microphone." : "Teacher unmuted your microphone.");
+        }
       });
     }
 

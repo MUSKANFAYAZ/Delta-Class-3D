@@ -121,6 +121,8 @@ function prefetchDashboardRouteChunks() {
     import("./features/dashboard/createClassroomPage.js").catch(() => {});
     import("./features/dashboard/joinClassroomPage.js").catch(() => {});
     import("./features/dashboard/roomPage.js").catch(() => {});
+    import("./features/dashboard/groupDiscussionPage.js").catch(() => {});
+    import("./features/dashboard/notesSharingPage.js").catch(() => {});
     import("./features/profile/profilePage.js").catch(() => {});
     import("./classroomPage.js").catch(() => {});
     import("./startup/classroomLoader.js").catch(() => {});
@@ -205,8 +207,11 @@ async function startSocketClassroom({ role, roomCode }) {
         }
         cleanupActiveClassroomConnection();
         localStorage.removeItem("delta-active-room");
-        alert(message || "Class session is not started yet. Please wait for the teacher to enter the classroom.");
-        navigate(`/join?role=${role}`);
+        localStorage.setItem(
+          "delta-dashboard-notice",
+          message || "Class session is not started yet. Please wait for the teacher to enter the classroom.",
+        );
+        navigate(`/dashboard?role=${role}`);
       }
     };
 
@@ -324,6 +329,8 @@ async function resolveExistingRooms() {
         canDelete: Boolean(room.canDelete) && viewerRole === "teacher",
         host: viewerRole === "teacher" && Boolean(room.canDelete || room.host),
         teacherPresent: Boolean(room.teacherPresent),
+        participants: Number(room.participants || 0),
+        participantNames: Array.isArray(room.participantNames) ? room.participantNames : [],
         at: room.createdAt || room.at || Date.now(),
       };
     });
@@ -483,16 +490,37 @@ async function renderRoute() {
             }
 
             if (page.muteButton) {
-              page.muteButton.addEventListener("click", () => {
-                const isMuted = activeVoiceSystem.toggleMute();
-                if (!isMuted) {
-                  activeVoiceSystem.enableRemoteAudioWithGesture && activeVoiceSystem.enableRemoteAudioWithGesture();
-                }
+              const setMuteButtonState = (isMuted) => {
                 page.muteButton.innerHTML = isMuted
                   ? '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>'
                   : '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
                 page.muteButton.setAttribute("data-tooltip", isMuted ? "Unmute Mic" : "Mute Mic");
                 page.muteButton.style.color = isMuted ? "#dc2626" : "#16a34a";
+              };
+
+              setMuteButtonState(Boolean(activeVoiceSystem.isMuted));
+              page.muteButton.addEventListener("click", () => {
+                const isMuted = activeVoiceSystem.toggleMute();
+                if (!isMuted) {
+                  activeVoiceSystem.enableRemoteAudioWithGesture && activeVoiceSystem.enableRemoteAudioWithGesture();
+                }
+                setMuteButtonState(isMuted);
+              });
+
+              window.activeClassroomSocket.on("audio-state-change", ({ userId, muted, by }) => {
+                if (userId !== window.activeClassroomSocket.id) return;
+                const isMuted = Boolean(muted);
+                setMuteButtonState(isMuted);
+                if (by && !isMuted) {
+                  page.setStatus("Teacher unmuted your microphone.", "Mic unmuted", true);
+                  window.setTimeout(() => {
+                    if (page?.setStatus) {
+                      page.setStatus("Ready to load the classroom.", "Idle", true);
+                    }
+                  }, 3500);
+                } else if (by && isMuted) {
+                  page.setStatus("Teacher muted your microphone.", "Mic muted", false);
+                }
               });
             }
 
@@ -724,6 +752,29 @@ async function renderRoute() {
       alert("Could not enter classroom. Check code/server and try again.");
       navigate(`/join?role=${roomRole}`);
     }
+    return;
+  }
+
+  if (path === "/group-discussion" || path === "/notes") {
+    const routeRole = params.get("role") === "teacher" ? "teacher" : "student";
+    const roomCode = String(params.get("code") || "").trim().toLowerCase();
+
+    if (!roomCode) {
+      navigate(`/dashboard?role=${routeRole}`);
+      return;
+    }
+
+    const modulePath = path === "/group-discussion"
+      ? "./features/dashboard/groupDiscussionPage.js"
+      : "./features/dashboard/notesSharingPage.js";
+
+    const { mountRoomToolPage } = await import(modulePath);
+    mountRoomToolPage(appRoot, {
+      role: routeRole,
+      roomCode,
+      onBack: () => navigate(`/classroom?role=${routeRole}&code=${encodeURIComponent(roomCode)}`),
+      onDashboard: () => navigate(`/dashboard?role=${routeRole}`),
+    });
     return;
   }
 
