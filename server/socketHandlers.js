@@ -33,6 +33,30 @@ module.exports = function attachSocketHandlers(io, deps) {
     });
   }
 
+  function getParticipantRoster(roomCode, activeSession) {
+    const roomSocketIds = Array.from(io.sockets.adapter.rooms.get(roomCode) || []);
+    const participants = roomSocketIds.map((socketId) => ({
+      userId: socketId,
+      displayName: activeSession.userDisplayNames?.get(socketId) || socketId,
+      role: activeSession.teacherSocketIds.has(socketId) ? "teacher" : "student",
+    }));
+    return participants;
+  }
+
+  async function persistDiscussionState(classroom, activeSession) {
+    if (!classroom) return;
+    classroom.discussionFeed = Array.isArray(activeSession.discussionFeed) ? [...activeSession.discussionFeed] : [];
+    classroom.discussionPolls = Array.isArray(activeSession.discussionPolls) ? [...activeSession.discussionPolls] : [];
+    await classroom.save().catch((err) => console.error("Error saving discussion state:", err));
+  }
+
+  function emitParticipantsState(roomCode, activeSession) {
+    io.to(roomCode).emit("participants-state", {
+      count: Number(io.sockets.adapter.rooms.get(roomCode)?.size || 0),
+      participants: getParticipantRoster(roomCode, activeSession),
+    });
+  }
+
   io.on("connection", async (socket) => {
     const role = getRole(socket);
     const roomCode = normalizeRoomCode(
@@ -94,6 +118,8 @@ module.exports = function attachSocketHandlers(io, deps) {
         });
         socket.emit("raise-hand-list", currentRaiseHands);
       }
+
+      emitParticipantsState(roomCode, activeSession);
 
       if (role === "student" && !activeSession.teacherPresent) {
         socket.emit("room-error", { message: "Class session is not started yet. Please wait for the teacher to enter the classroom." });
@@ -174,6 +200,119 @@ module.exports = function attachSocketHandlers(io, deps) {
         io.to(roomCode).emit("blackboard-stroke", stroke);
       });
 
+      socket.on("request-discussion-state", () => {
+        try {
+          socket.emit("discussion-state", {
+            feed: Array.isArray(activeSession.discussionFeed) ? activeSession.discussionFeed : [],
+            polls: Array.isArray(activeSession.discussionPolls) ? activeSession.discussionPolls : [],
+          });
+          emitParticipantsState(roomCode, activeSession);
+        } catch (err) {
+          console.error("request-discussion-state error:", err);
+        }
+      });
+
+      socket.on("discussion-message", async (payload = {}) => {
+        try {
+          const text = String(payload.text || "").trim();
+          if (!text) return;
+          const item = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            type: "message",
+            text,
+            displayName: activeSession.userDisplayNames?.get(socket.id) || payload.displayName || socket.id,
+            userId: socket.id,
+            createdAt: Date.now(),
+          };
+          activeSession.discussionFeed = Array.isArray(activeSession.discussionFeed) ? activeSession.discussionFeed : [];
+          activeSession.discussionFeed.push(item);
+          if (activeSession.discussionFeed.length > 500) {
+            activeSession.discussionFeed = activeSession.discussionFeed.slice(-500);
+          }
+          await persistDiscussionState(classroom, activeSession);
+          io.to(roomCode).emit("discussion-update", item);
+        } catch (err) {
+          console.error("discussion-message error:", err);
+        }
+      });
+
+      socket.on("discussion-image", async (payload = {}) => {
+        try {
+          const dataUrl = String(payload.dataUrl || "").trim();
+          if (!dataUrl.startsWith("data:image/")) return;
+          const item = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            type: "image",
+            name: String(payload.name || "image").trim(),
+            dataUrl,
+            displayName: activeSession.userDisplayNames?.get(socket.id) || payload.displayName || socket.id,
+            userId: socket.id,
+            createdAt: Date.now(),
+          };
+          activeSession.discussionFeed = Array.isArray(activeSession.discussionFeed) ? activeSession.discussionFeed : [];
+          activeSession.discussionFeed.push(item);
+          if (activeSession.discussionFeed.length > 500) {
+            activeSession.discussionFeed = activeSession.discussionFeed.slice(-500);
+          }
+          await persistDiscussionState(classroom, activeSession);
+          io.to(roomCode).emit("discussion-update", item);
+        } catch (err) {
+          console.error("discussion-image error:", err);
+        }
+      });
+
+      socket.on("discussion-poll", async (payload = {}) => {
+        try {
+          const question = String(payload.question || "").trim();
+          const options = Array.isArray(payload.options)
+            ? payload.options.map((option) => String(option || "").trim()).filter(Boolean).slice(0, 6)
+            : [];
+          if (!question || options.length < 2) return;
+
+          const poll = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            question,
+            options: options.map((text) => ({ text, votes: 0 })),
+            votesByUser: {},
+            displayName: activeSession.userDisplayNames?.get(socket.id) || payload.displayName || socket.id,
+            userId: socket.id,
+            createdAt: Date.now(),
+          };
+
+          activeSession.discussionPolls = Array.isArray(activeSession.discussionPolls) ? activeSession.discussionPolls : [];
+          activeSession.discussionPolls.unshift(poll);
+          if (activeSession.discussionPolls.length > 50) {
+            activeSession.discussionPolls = activeSession.discussionPolls.slice(0, 50);
+          }
+          await persistDiscussionState(classroom, activeSession);
+          io.to(roomCode).emit("discussion-poll-update", poll);
+        } catch (err) {
+          console.error("discussion-poll error:", err);
+        }
+      });
+
+      socket.on("discussion-vote", async (payload = {}) => {
+        try {
+          const pollId = String(payload.pollId || "").trim();
+          const optionIndex = Number(payload.optionIndex);
+          const poll = (activeSession.discussionPolls || []).find((entry) => String(entry.id) === pollId);
+          if (!poll || !Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= poll.options.length) return;
+
+          poll.votesByUser = poll.votesByUser && typeof poll.votesByUser === "object" ? poll.votesByUser : {};
+          const previousVote = poll.votesByUser[socket.id];
+          if (Number.isInteger(previousVote) && poll.options[previousVote]) {
+            poll.options[previousVote].votes = Math.max(0, Number(poll.options[previousVote].votes || 0) - 1);
+          }
+          poll.options[optionIndex].votes = Number(poll.options[optionIndex].votes || 0) + 1;
+          poll.votesByUser[socket.id] = optionIndex;
+
+          await persistDiscussionState(classroom, activeSession);
+          io.to(roomCode).emit("discussion-poll-update", poll);
+        } catch (err) {
+          console.error("discussion-vote error:", err);
+        }
+      });
+
       socket.on("blackboard-clear", async () => {
         activeSession.blackboardStrokes = [];
         if (classroom) {
@@ -251,6 +390,7 @@ module.exports = function attachSocketHandlers(io, deps) {
         }
 
         io.to(roomCode).emit("peer-left", socket.id);
+        emitParticipantsState(roomCode, activeSession);
         emitVoiceScalingState(roomCode);
       });
 

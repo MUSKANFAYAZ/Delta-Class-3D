@@ -29,6 +29,11 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
               </button>
             `}
+            ${role === "teacher" ? `
+              <button id="discussion-button" type="button" class="dc-btn dc-btn-secondary dc-discussion-btn" data-tooltip="Open discussion page">
+                Discussion
+              </button>
+            ` : ``}
             <button id="mute-button" type="button" class="dc-btn dc-btn-ghost dc-icon-btn dc-room-icon-btn" data-tooltip="Unmute Mic">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="icon-mic-off"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
             </button>
@@ -58,18 +63,13 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
       <aside id="raise-hand-panel" class="dc-raise-hand-panel" aria-live="polite">
         <h3 class="dc-raise-hand-title">Raised Hands</h3>
         <p class="dc-muted dc-small">Students who raised hands will appear here.</p>
+        <details id="participants-panel" class="dc-room-participants" open>
+          <summary class="dc-room-participants-summary">Participants (<span id="participants-count">0</span>)</summary>
+          <ul id="participants-list" class="dc-room-participants-list"></ul>
+        </details>
         <ul id="raise-hand-list" class="dc-raise-hand-list"></ul>
       </aside>
       ` : ``}
-
-      <div class="dc-classroom-tools" id="dc-classroom-tools">
-        <button type="button" class="dc-classroom-tool-btn" id="dc-open-discussion" data-tooltip="Group discussion">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4v-4H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"></path></svg>
-        </button>
-        <button type="button" class="dc-classroom-tool-btn" id="dc-open-notes" data-tooltip="Notes sharing">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M8 13h8"></path><path d="M8 17h8"></path></svg>
-        </button>
-      </div>
     </div>
 
     <!-- Reload Warning Modal -->
@@ -119,6 +119,7 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
   const reloadModalBackdrop = document.getElementById("reload-modal-backdrop");
   const confirmReloadBtn = document.getElementById("confirm-reload-btn");
   const cancelReloadBtn = document.getElementById("cancel-reload-btn");
+  const discussionButton = document.getElementById("discussion-button");
 
   if (!connectionStatus || !connectionBadge || !bandwidthPanel || !loadButton || !exitButton) {
     throw new Error("Missing classroom UI elements");
@@ -126,8 +127,6 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
 
   const raiseHandPanel = document.getElementById("raise-hand-panel");
   const raiseHandList = document.getElementById("raise-hand-list");
-  const discussionButton = document.getElementById("dc-open-discussion");
-  const notesButton = document.getElementById("dc-open-notes");
   const classroomQuery = new URLSearchParams((window.location.hash.split("?")[1] || ""));
   const classroomCode = classroomQuery.get("code") || classroomQuery.get("roomCode") || "";
   const raiseHandState = new Map();
@@ -139,11 +138,16 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
     });
   }
 
-  if (notesButton && classroomCode) {
-    notesButton.addEventListener("click", () => {
-      window.location.hash = `/notes?role=${role}&code=${encodeURIComponent(classroomCode)}`;
-    });
-  }
+  const participantsCount = document.getElementById("participants-count");
+  const participantsList = document.getElementById("participants-list");
+
+  const renderParticipants = (participants = []) => {
+    if (participantsCount) participantsCount.textContent = String(participants.length || 0);
+    if (!participantsList) return;
+    participantsList.innerHTML = participants.length
+      ? participants.map((participant) => `<li>${participant.displayName || participant.userId || "Unknown"}</li>`).join("")
+      : "<li>No participants yet</li>";
+  };
 
   const setupRaiseHandListeners = () => {
     if (raiseHandListenersBound || role !== "teacher" || !raiseHandList || !window.activeClassroomSocket) return;
@@ -338,6 +342,10 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
         raiseHandButton.setAttribute("data-tooltip", "Raise Hand");
         raiseHandButton.style.color = "";
         raiseHandButton.classList.remove("dc-raise-hand-button--active");
+          raiseHandButton.classList.add("dc-raise-hand-button--transitioning");
+          window.setTimeout(() => {
+            raiseHandButton.classList.remove("dc-raise-hand-button--transitioning");
+          }, 1000);
       }
     });
   }
@@ -373,6 +381,13 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
   };
 
   window.addEventListener("keydown", handleReloadShortcut, { passive: false });
+
+  if (window.activeClassroomSocket) {
+    window.activeClassroomSocket.on("participants-state", ({ participants = [] }) => {
+      renderParticipants(Array.isArray(participants) ? participants : []);
+    });
+    window.activeClassroomSocket.emit("request-discussion-state");
+  }
 
   function setStatus(message, badgeText, badgeConnected = false) {
     connectionStatus.textContent = message;

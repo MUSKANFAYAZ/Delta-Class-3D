@@ -60,11 +60,23 @@ const classroomSchema = new mongoose.Schema(
         z: Number,
       },
       default: new Map(),
-    },    blackboardStrokes: {
+    },
+    blackboardStrokes: {
       type: Array,
       default: [],
       description: "Array of drawing strokes for the whiteboard",
-    },  },
+    },
+    discussionFeed: {
+      type: Array,
+      default: [],
+      description: "Stored discussion messages, images, and system events",
+    },
+    discussionPolls: {
+      type: Array,
+      default: [],
+      description: "Stored discussion poll state",
+    },
+  },
   { timestamps: true }
 );
 

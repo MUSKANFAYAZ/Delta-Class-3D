@@ -194,6 +194,12 @@ function createActiveSessionFromClassroom(classroom) {
     blackboardStrokes: Array.isArray(classroom?.blackboardStrokes)
       ? [...classroom.blackboardStrokes]
       : [],
+    discussionFeed: Array.isArray(classroom?.discussionFeed)
+      ? [...classroom.discussionFeed]
+      : [],
+    discussionPolls: Array.isArray(classroom?.discussionPolls)
+      ? [...classroom.discussionPolls]
+      : [],
     userAudioStates: new Map(),
     raiseHands: new Set(),
     userDisplayNames: new Map(),

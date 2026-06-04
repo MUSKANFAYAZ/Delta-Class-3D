@@ -86,6 +86,13 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
     placeholder: "Password (min 6 chars)",
     autocomplete: "current-password",
   });
+  // allow pressing Enter in phone or password to submit login
+  phoneFields.phoneNumber.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") loginWithPassword();
+  });
+  password.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") loginWithPassword();
+  });
   const newPassword = el("input", { class: "dc-input", type: "password", placeholder: "New password", autocomplete: "new-password" });
   const confirmPassword = el("input", {
     class: "dc-input",

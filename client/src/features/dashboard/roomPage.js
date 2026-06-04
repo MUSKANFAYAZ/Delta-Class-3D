@@ -35,7 +35,7 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
                 <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
               </svg>
             </button>
-          ` : ""}
+          ` : `<button id="discussion-button" type="button" class="dc-btn dc-btn-secondary">Discussion</button>`}
           <button id="mute-button" type="button" class="dc-btn dc-btn-ghost dc-room-icon-btn" data-tooltip="Unmute Mic">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="1" y1="1" x2="23" y2="23"></line>
@@ -46,6 +46,13 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
             </svg>
           </button>
         </div>
+
+        ${role === "teacher" ? `
+          <details class="dc-room-participants dc-room-participants--topbar" id="participants-panel" open>
+            <summary class="dc-room-participants-summary">Participants (<span id="participants-count">0</span>)</summary>
+            <ul class="dc-room-participants-list" id="participants-list"></ul>
+          </details>
+        ` : ""}
 
       </header>
 
@@ -58,15 +65,6 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
           <ul id="raise-hand-list" class="dc-raise-hand-list"></ul>
         </aside>
       ` : ""}
-
-      <div class="dc-classroom-tools" id="dc-classroom-tools">
-        <button type="button" class="dc-classroom-tool-btn" id="dc-open-discussion" data-tooltip="Group discussion">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4v-4H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"></path></svg>
-        </button>
-        <button type="button" class="dc-classroom-tool-btn" id="dc-open-notes" data-tooltip="Notes sharing">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path><path d="M8 13h8"></path><path d="M8 17h8"></path></svg>
-        </button>
-      </div>
 
     </main>
 
@@ -100,9 +98,11 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
   const raiseHandButton = wrap.querySelector("#raise-hand-button");
   const raiseHandPanel = wrap.querySelector("#raise-hand-panel");
   const raiseHandList = wrap.querySelector("#raise-hand-list");
-  const roomTools = wrap.querySelector("#dc-classroom-tools");
-  const openDiscussionBtn = wrap.querySelector("#dc-open-discussion");
-  const openNotesBtn = wrap.querySelector("#dc-open-notes");
+  // collapsed left-side tab shown when no raised hands
+  let raiseHandTab = null;
+  const discussionButton = wrap.querySelector("#discussion-button");
+  const participantsCount = wrap.querySelector("#participants-count");
+  const participantsList = wrap.querySelector("#participants-list");
   const noticeBanner = document.createElement("div");
   noticeBanner.className = "dc-room-notice";
   noticeBanner.hidden = true;
@@ -110,6 +110,14 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
   let raiseHandListenersBound = false;
   const raiseHandState = new Map();
   const roomCodeParam = roomCode;
+
+  const renderParticipants = (participants = []) => {
+    if (participantsCount) participantsCount.textContent = String(participants.length || 0);
+    if (!participantsList) return;
+    participantsList.innerHTML = participants.length
+      ? participants.map((participant) => `<li>${participant.displayName || participant.userId || "Unknown"}</li>`).join("")
+      : "<li>No participants yet</li>";
+  };
 
   const setMuteButtonState = (isMuted) => {
     if (!muteButton) return;
@@ -131,17 +139,9 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
     }, 3500);
   };
 
-  if (openDiscussionBtn) {
-    openDiscussionBtn.addEventListener("click", () => {
-      if (!roomCodeParam) return;
+  if (discussionButton && roomCodeParam) {
+    discussionButton.addEventListener("click", () => {
       window.location.hash = `/group-discussion?role=${role}&code=${encodeURIComponent(roomCodeParam)}`;
-    });
-  }
-
-  if (openNotesBtn) {
-    openNotesBtn.addEventListener("click", () => {
-      if (!roomCodeParam) return;
-      window.location.hash = `/notes?role=${role}&code=${encodeURIComponent(roomCodeParam)}`;
     });
   }
 
@@ -194,6 +194,12 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
           raiseHandButton.setAttribute("data-tooltip", "Raise Hand");
           raiseHandButton.style.color = "";
           raiseHandButton.classList.remove("dc-raise-hand-button--active");
+          raiseHandButton.classList.add("dc-raise-hand-button--transitioning");
+          // show a brief notice so user knows hand was lowered
+          showNotice("Hand lowered");
+          window.setTimeout(() => {
+            raiseHandButton.classList.remove("dc-raise-hand-button--transitioning");
+          }, 1000);
         }
       });
     }
@@ -290,6 +296,20 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
         li.appendChild(actions);
         raiseHandList.appendChild(li);
       });
+
+      // show panel only when list has entries, otherwise hide it
+      try {
+        if (raiseHandPanel) raiseHandPanel.hidden = !(list && list.length);
+      } catch (e) {
+        // ignore
+      }
+
+      // show/hide left-side tab depending on presence of hands
+      try {
+        if (raiseHandTab) raiseHandTab.hidden = Boolean(list && list.length);
+      } catch (e) {
+        // ignore
+      }
     };
 
     window.activeClassroomSocket.on("raise-hand-list", renderRaiseHands);
@@ -316,11 +336,35 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
       }
     });
 
+    window.activeClassroomSocket.on("participants-state", ({ participants = [] }) => {
+      renderParticipants(Array.isArray(participants) ? participants : []);
+    });
+
     window.activeClassroomSocket.emit("request-raise-hand-list");
+    window.activeClassroomSocket.emit("request-discussion-state");
   };
 
   // Start checking for socket connection
   checkAndInitializeVoice();
+  // create left-side collapsed tab to show when there are no raised hands
+  if (role === "teacher") {
+    raiseHandTab = document.createElement("button");
+    raiseHandTab.className = "dc-raise-hand-tab dc-btn dc-btn-ghost";
+    raiseHandTab.type = "button";
+    raiseHandTab.title = "Raised Hands";
+    raiseHandTab.textContent = "Raised Hands";
+    raiseHandTab.style.position = "fixed";
+    raiseHandTab.style.left = "6px";
+    raiseHandTab.style.top = "50%";
+    raiseHandTab.style.transform = "translateY(-50%) rotate(-90deg)";
+    raiseHandTab.style.zIndex = 9999;
+    raiseHandTab.style.padding = "8px 12px";
+    raiseHandTab.addEventListener("click", () => {
+      if (raiseHandPanel) raiseHandPanel.hidden = !raiseHandPanel.hidden;
+    });
+    document.body.appendChild(raiseHandTab);
+    if (raiseHandPanel) raiseHandPanel.hidden = true;
+  }
   // Modal functionality
   const exitBtn = wrap.querySelector("#dc-room-exit");
   const modalBackdrop = wrap.querySelector("#exit-modal-backdrop");
@@ -391,6 +435,14 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
 
       hideModal();
 
+      // navigate back to dashboard immediately so teacher returns to listing
+      try {
+        window.location.hash = `/dashboard?role=teacher`;
+      } catch (e) {
+        window.location.href = "#/dashboard?role=teacher";
+      }
+
+      // still call the onExit handler to perform server-side deletion and cleanup
       onExit?.({ action: "end_call" });
 
     });
@@ -430,6 +482,12 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
       } catch (error) {
         console.error("Error cleaning up Voice System:", error);
       }
+    }
+    // remove left-side tab if present
+    try {
+      if (raiseHandTab && raiseHandTab.parentElement) raiseHandTab.parentElement.removeChild(raiseHandTab);
+    } catch (e) {
+      // ignore
     }
   };
 

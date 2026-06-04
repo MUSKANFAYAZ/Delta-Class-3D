@@ -122,7 +122,7 @@ function prefetchDashboardRouteChunks() {
     import("./features/dashboard/joinClassroomPage.js").catch(() => {});
     import("./features/dashboard/roomPage.js").catch(() => {});
     import("./features/dashboard/groupDiscussionPage.js").catch(() => {});
-    import("./features/dashboard/notesSharingPage.js").catch(() => {});
+    import("./features/dashboard/notesPage.js").catch(() => {});
     import("./features/profile/profilePage.js").catch(() => {});
     import("./classroomPage.js").catch(() => {});
     import("./startup/classroomLoader.js").catch(() => {});
@@ -430,7 +430,7 @@ async function mountLegacyClassroom(params) {
 
 async function renderRoute() {
   const { path, params } = parseHash();
-  const isClassroomRoute = path === "/classroom" || path === "/room";
+  const isClassroomRoute = path === "/classroom" || path === "/room" || path === "/group-discussion";
 
   if (isClassroomRoute) {
     enableClassroomRefreshGuard();
@@ -755,7 +755,7 @@ async function renderRoute() {
     return;
   }
 
-  if (path === "/group-discussion" || path === "/notes") {
+  if (path === "/group-discussion") {
     const routeRole = params.get("role") === "teacher" ? "teacher" : "student";
     const roomCode = String(params.get("code") || "").trim().toLowerCase();
 
@@ -764,12 +764,27 @@ async function renderRoute() {
       return;
     }
 
-    const modulePath = path === "/group-discussion"
-      ? "./features/dashboard/groupDiscussionPage.js"
-      : "./features/dashboard/notesSharingPage.js";
-
-    const { mountRoomToolPage } = await import(modulePath);
+    const { mountRoomToolPage } = await import("./features/dashboard/groupDiscussionPage.js");
     mountRoomToolPage(appRoot, {
+      role: routeRole,
+      roomCode,
+      onBack: () => navigate(`/classroom?role=${routeRole}&code=${encodeURIComponent(roomCode)}`),
+      onDashboard: () => navigate(`/dashboard?role=${routeRole}`),
+    });
+    return;
+  }
+
+  if (path === "/notes") {
+    const routeRole = params.get("role") === "teacher" ? "teacher" : "student";
+    const roomCode = String(params.get("code") || "").trim().toLowerCase();
+
+    if (!roomCode) {
+      navigate(`/dashboard?role=${routeRole}`);
+      return;
+    }
+
+    const { mountNotesPage } = await import("./features/dashboard/notesPage.js");
+    mountNotesPage(appRoot, {
       role: routeRole,
       roomCode,
       onBack: () => navigate(`/classroom?role=${routeRole}&code=${encodeURIComponent(roomCode)}`),

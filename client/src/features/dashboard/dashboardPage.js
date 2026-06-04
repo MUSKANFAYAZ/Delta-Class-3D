@@ -227,6 +227,26 @@ export function mountDashboard(
 
       cards.appendChild(card);
 
+      // attach quick tool buttons (Discussion / Notes) below card content
+      const toolWrap = document.createElement('div');
+      toolWrap.style.display = 'flex';
+      toolWrap.style.gap = '8px';
+      toolWrap.style.marginTop = '10px';
+      toolWrap.innerHTML = `
+        <button type="button" class="dc-btn dc-btn-ghost dc-discussion-card-btn">Discussion</button>
+        <button type="button" class="dc-btn dc-btn-ghost dc-notes-card-btn">Notes</button>
+      `;
+      card.appendChild(toolWrap);
+
+      toolWrap.querySelector('.dc-discussion-card-btn')?.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        window.location.hash = `/group-discussion?role=${viewerRole}&code=${encodeURIComponent(room.code)}`;
+      });
+      toolWrap.querySelector('.dc-notes-card-btn')?.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        window.location.hash = `/notes?role=${viewerRole}&code=${encodeURIComponent(room.code)}`;
+      });
+
       // Show delete button only for the original creator.
       if (canDelete) {
         mountDeleteButton(card, {
