@@ -86,13 +86,7 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
     placeholder: "Password (min 6 chars)",
     autocomplete: "current-password",
   });
-  // allow pressing Enter in phone or password to submit login
-  phoneFields.phoneNumber.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") loginWithPassword();
-  });
-  password.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") loginWithPassword();
-  });
+  // login function needs to be available before event listeners are attached
   const newPassword = el("input", { class: "dc-input", type: "password", placeholder: "New password", autocomplete: "new-password" });
   const confirmPassword = el("input", {
     class: "dc-input",
@@ -102,6 +96,14 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
   });
 
   let view = mode ? "login" : "choose";
+
+  // allow pressing Enter in phone or password to submit login
+  phoneFields.phoneNumber.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") loginWithPassword();
+  });
+  password.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") loginWithPassword();
+  });
 
   async function loginWithPassword() {
     status.textContent = "";
@@ -132,8 +134,6 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
       status.textContent = e?.message || "Login failed.";
     }
   }
-
-
 
   async function resetPassword() {
     status.textContent = "";
