@@ -163,9 +163,16 @@ async function resolveParticipantDetails(classroom, activeSession = null) {
   const classroomAssignments = classroom?.studentAssignments instanceof Map
     ? Array.from(classroom.studentAssignments.keys())
     : Object.keys(classroom?.studentAssignments || {});
+  const approvedStudentIds = Array.isArray(classroom?.approvedStudentIds)
+    ? classroom.approvedStudentIds.map((value) => String(value).trim())
+    : [];
 
   const teacherIds = classroom?.createdBy ? [String(classroom.createdBy)] : [];
-  const knownIds = Array.from(new Set([...classroomAssignments, ...teacherIds].map((value) => String(value).trim()).filter(Boolean)));
+  const knownIds = Array.from(new Set([
+    ...classroomAssignments,
+    ...approvedStudentIds,
+    ...teacherIds,
+  ].map((value) => String(value).trim()).filter(Boolean)));
 
   if (knownIds.length > 0) {
     try {
@@ -212,6 +219,16 @@ function getUserFromAuthHeader(req) {
   if (!match) return null;
   try {
     return verifyToken(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+function getUserFromSocket(socket) {
+  const token = String(socket.handshake.auth?.token || socket.handshake.query?.token || "").trim();
+  if (!token) return null;
+  try {
+    return verifyToken(token);
   } catch {
     return null;
   }
@@ -343,15 +360,17 @@ app.get("/auth/classrooms", authMiddleware, async (req, res) => {
         .limit(100)
         .lean();
     } else {
-      // Students see all classrooms, but filter to those they're assigned to
+      // Students see classrooms they are approved to join
       const allClassrooms = await Classroom.find({})
         .sort({ createdAt: -1 })
         .limit(100)
         .lean();
 
       classrooms = allClassrooms.filter((classroom) => {
-        const studentAssignmentKeys = Object.keys(classroom.studentAssignments || {});
-        return studentAssignmentKeys.includes(userId);
+        const approvedIds = Array.isArray(classroom.approvedStudentIds)
+          ? classroom.approvedStudentIds.map((entry) => String(entry).trim())
+          : [];
+        return approvedIds.includes(userId);
       });
     }
 
@@ -444,26 +463,317 @@ app.post("/auth/classrooms/:code/join", authMiddleware, async (req, res) => {
       return res.json({ ok: true, code, joined: false, role: "teacher", canDelete: isOwner });
     }
 
-    const assignments = classroom.studentAssignments instanceof Map
-      ? classroom.studentAssignments
-      : new Map(Object.entries(classroom.studentAssignments || {}));
+    const approvedIds = Array.isArray(classroom.approvedStudentIds)
+      ? classroom.approvedStudentIds.map((entry) => String(entry).trim())
+      : [];
+    const pendingRequests = Array.isArray(classroom.pendingJoinRequests)
+      ? classroom.pendingJoinRequests
+      : [];
 
-    if (!assignments.has(userId)) {
-      assignments.set(userId, -1);
-      classroom.studentAssignments = assignments;
-      await classroom.save();
+    if (approvedIds.includes(userId)) {
+      return res.json({
+        ok: true,
+        code,
+        joined: true,
+        pending: false,
+        teacherPresent: Boolean(activeClassrooms.get(code)?.teacherPresent),
+        participants: (approvedIds.length || 0) + (classroom.teacherPositions?.size || 0),
+      });
     }
+
+    const existingRequest = pendingRequests.find((entry) => String(entry.userId) === userId);
+    if (existingRequest) {
+      return res.json({
+        ok: true,
+        code,
+        joined: false,
+        pending: true,
+        message: "Join request submitted. Waiting for teacher approval.",
+      });
+    }
+
+    classroom.pendingJoinRequests = [
+      ...pendingRequests,
+      {
+        userId,
+        displayName: String(req.user?.name || req.user?.displayName || req.user?.phone || "").trim(),
+        createdAt: new Date(),
+      },
+    ];
+    await classroom.save();
 
     return res.json({
       ok: true,
       code,
-      joined: true,
-      teacherPresent: Boolean(activeClassrooms.get(code)?.teacherPresent),
-      participants: (classroom.studentAssignments?.size || assignments.size || 0) + (classroom.teacherPositions?.size || 0),
+      joined: false,
+      pending: true,
+      message: "Join request submitted. Waiting for teacher approval.",
     });
   } catch (error) {
     console.error("[POST /auth/classrooms/:code/join] Error joining classroom:", error?.message || error, error?.stack);
     return res.status(500).json({ ok: false, message: "Error joining classroom", detail: error?.message });
+  }
+});
+
+app.get("/auth/classrooms/:code/pending-requests", authMiddleware, async (req, res) => {
+  try {
+    const code = normalizeRoomCode(req.params.code);
+    if (!isValidRoomCode(code)) {
+      return res.status(400).json({ ok: false, message: "Invalid room code format" });
+    }
+
+    const classroom = await Classroom.findOne({ code });
+    if (!classroom) {
+      return res.status(404).json({ ok: false, message: "Classroom not found" });
+    }
+
+    if (String(classroom.createdBy) !== String(req.user.sub)) {
+      return res.status(403).json({ ok: false, message: "Only the classroom teacher may view pending requests" });
+    }
+
+    return res.json({ ok: true, pendingRequests: Array.isArray(classroom.pendingJoinRequests) ? classroom.pendingJoinRequests : [] });
+  } catch (error) {
+    console.error("[GET /auth/classrooms/:code/pending-requests]", error?.message || error);
+    return res.status(500).json({ ok: false, message: "Error fetching pending requests", detail: error?.message });
+  }
+});
+
+app.post("/auth/classrooms/:code/pending-requests/:studentId/approve", authMiddleware, async (req, res) => {
+  try {
+    const code = normalizeRoomCode(req.params.code);
+    const studentId = String(req.params.studentId || "").trim();
+    if (!isValidRoomCode(code) || !studentId) {
+      return res.status(400).json({ ok: false, message: "Invalid request" });
+    }
+
+    const classroom = await Classroom.findOne({ code });
+    if (!classroom) {
+      return res.status(404).json({ ok: false, message: "Classroom not found" });
+    }
+
+    if (String(classroom.createdBy) !== String(req.user.sub)) {
+      return res.status(403).json({ ok: false, message: "Only the classroom teacher may approve students" });
+    }
+
+    const pendingRequests = Array.isArray(classroom.pendingJoinRequests) ? classroom.pendingJoinRequests : [];
+    const remainingRequests = pendingRequests.filter((entry) => String(entry.userId) !== studentId);
+    classroom.pendingJoinRequests = remainingRequests;
+    classroom.approvedStudentIds = Array.isArray(classroom.approvedStudentIds) ? [...new Set([...classroom.approvedStudentIds, studentId])] : [studentId];
+    await classroom.save();
+
+    io.to(code).emit("pending-requests-updated", { approved: studentId, requestCount: classroom.pendingJoinRequests.length });
+    return res.json({ ok: true, approved: studentId });
+  } catch (error) {
+    console.error("[POST /auth/classrooms/:code/pending-requests/:studentId/approve]", error?.message || error);
+    return res.status(500).json({ ok: false, message: "Error approving request", detail: error?.message });
+  }
+});
+
+app.delete("/auth/classrooms/:code/pending-requests/:studentId", authMiddleware, async (req, res) => {
+  try {
+    const code = normalizeRoomCode(req.params.code);
+    const studentId = String(req.params.studentId || "").trim();
+    if (!isValidRoomCode(code) || !studentId) {
+      return res.status(400).json({ ok: false, message: "Invalid request" });
+    }
+
+    const classroom = await Classroom.findOne({ code });
+    if (!classroom) {
+      return res.status(404).json({ ok: false, message: "Classroom not found" });
+    }
+
+    if (String(classroom.createdBy) !== String(req.user.sub)) {
+      return res.status(403).json({ ok: false, message: "Only the classroom teacher may deny requests" });
+    }
+
+    classroom.pendingJoinRequests = (Array.isArray(classroom.pendingJoinRequests) ? classroom.pendingJoinRequests : []).filter(
+      (entry) => String(entry.userId) !== studentId,
+    );
+    await classroom.save();
+
+    io.to(code).emit("pending-requests-updated", { denied: studentId, requestCount: classroom.pendingJoinRequests.length });
+    return res.json({ ok: true, denied: studentId });
+  } catch (error) {
+    console.error("[DELETE /auth/classrooms/:code/pending-requests/:studentId]", error?.message || error);
+    return res.status(500).json({ ok: false, message: "Error denying request", detail: error?.message });
+  }
+});
+
+app.get("/auth/classrooms/:code/discussion", authMiddleware, async (req, res) => {
+  try {
+    const code = normalizeRoomCode(req.params.code);
+    if (!isValidRoomCode(code)) {
+      return res.status(400).json({ ok: false, message: "Invalid room code format" });
+    }
+
+    const classroom = await Classroom.findOne({ code });
+    if (!classroom) {
+      return res.status(404).json({ ok: false, message: "Classroom not found" });
+    }
+
+    return res.json({
+      ok: true,
+      feed: Array.isArray(classroom.discussionFeed) ? classroom.discussionFeed : [],
+      polls: Array.isArray(classroom.discussionPolls) ? classroom.discussionPolls : [],
+    });
+  } catch (error) {
+    console.error("[GET /auth/classrooms/:code/discussion]", error?.message || error);
+    return res.status(500).json({ ok: false, message: "Error fetching discussion state", detail: error?.message });
+  }
+});
+
+app.post("/auth/classrooms/:code/discussion/message", authMiddleware, async (req, res) => {
+  try {
+    const code = normalizeRoomCode(req.params.code);
+    if (!isValidRoomCode(code)) {
+      return res.status(400).json({ ok: false, message: "Invalid room code format" });
+    }
+
+    const text = String(req.body?.text || "").trim();
+    if (!text) {
+      return res.status(400).json({ ok: false, message: "Message text is required" });
+    }
+
+    const classroom = await Classroom.findOne({ code });
+    if (!classroom) {
+      return res.status(404).json({ ok: false, message: "Classroom not found" });
+    }
+
+    const item = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      type: "message",
+      text,
+      displayName: String(req.user?.name || req.user?.displayName || "").trim() || "Unknown",
+      userId: String(req.user?.sub || ""),
+      createdAt: Date.now(),
+    };
+
+    classroom.discussionFeed = Array.isArray(classroom.discussionFeed) ? [...classroom.discussionFeed, item] : [item];
+    if (classroom.discussionFeed.length > 500) classroom.discussionFeed = classroom.discussionFeed.slice(-500);
+    await classroom.save();
+
+    io.to(code).emit("discussion-update", item);
+    return res.json({ ok: true, item });
+  } catch (error) {
+    console.error("[POST /auth/classrooms/:code/discussion/message]", error?.message || error);
+    return res.status(500).json({ ok: false, message: "Error saving message", detail: error?.message });
+  }
+});
+
+app.delete("/auth/classrooms/:code/discussion/message/:messageId", authMiddleware, async (req, res) => {
+  try {
+    const code = normalizeRoomCode(req.params.code);
+    const messageId = String(req.params.messageId || "").trim();
+    if (!isValidRoomCode(code) || !messageId) {
+      return res.status(400).json({ ok: false, message: "Invalid request" });
+    }
+
+    const classroom = await Classroom.findOne({ code });
+    if (!classroom) {
+      return res.status(404).json({ ok: false, message: "Classroom not found" });
+    }
+
+    const feed = Array.isArray(classroom.discussionFeed) ? classroom.discussionFeed : [];
+    const existing = feed.find((item) => String(item.id) === messageId);
+    if (!existing) {
+      return res.status(404).json({ ok: false, message: "Message not found" });
+    }
+
+    const userId = String(req.user?.sub || "");
+    const isTeacher = String(classroom.createdBy) === userId;
+    if (String(existing.userId) !== userId && !isTeacher) {
+      return res.status(403).json({ ok: false, message: "Only the sender or teacher may delete this message" });
+    }
+
+    classroom.discussionFeed = feed.filter((item) => String(item.id) !== messageId);
+    await classroom.save();
+
+    io.to(code).emit("discussion-delete", { id: messageId });
+    return res.json({ ok: true, deleted: messageId });
+  } catch (error) {
+    console.error("[DELETE /auth/classrooms/:code/discussion/message/:messageId]", error?.message || error);
+    return res.status(500).json({ ok: false, message: "Error deleting message", detail: error?.message });
+  }
+});
+
+app.post("/auth/classrooms/:code/discussion/poll", authMiddleware, async (req, res) => {
+  try {
+    const code = normalizeRoomCode(req.params.code);
+    if (!isValidRoomCode(code)) {
+      return res.status(400).json({ ok: false, message: "Invalid room code format" });
+    }
+
+    const question = String(req.body?.question || "").trim();
+    const options = Array.isArray(req.body?.options)
+      ? req.body.options.map((option) => String(option || "").trim()).filter(Boolean).slice(0, 6)
+      : [];
+
+    if (!question || options.length < 2) {
+      return res.status(400).json({ ok: false, message: "Poll question and at least 2 options are required" });
+    }
+
+    const classroom = await Classroom.findOne({ code });
+    if (!classroom) {
+      return res.status(404).json({ ok: false, message: "Classroom not found" });
+    }
+
+    const poll = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      question,
+      options: options.map((text) => ({ text, votes: 0 })),
+      votesByUser: {},
+      displayName: String(req.user?.name || req.user?.displayName || "").trim() || "Unknown",
+      userId: String(req.user?.sub || ""),
+      createdAt: Date.now(),
+    };
+
+    classroom.discussionPolls = Array.isArray(classroom.discussionPolls) ? [poll, ...classroom.discussionPolls] : [poll];
+    if (classroom.discussionPolls.length > 50) classroom.discussionPolls = classroom.discussionPolls.slice(0, 50);
+    await classroom.save();
+
+    io.to(code).emit("discussion-poll-update", poll);
+    return res.json({ ok: true, poll });
+  } catch (error) {
+    console.error("[POST /auth/classrooms/:code/discussion/poll]", error?.message || error);
+    return res.status(500).json({ ok: false, message: "Error saving poll", detail: error?.message });
+  }
+});
+
+app.post("/auth/classrooms/:code/discussion/poll/:pollId/vote", authMiddleware, async (req, res) => {
+  try {
+    const code = normalizeRoomCode(req.params.code);
+    const pollId = String(req.params.pollId || "").trim();
+    const optionIndex = Number(req.body?.optionIndex);
+    if (!isValidRoomCode(code) || !pollId || !Number.isInteger(optionIndex)) {
+      return res.status(400).json({ ok: false, message: "Invalid request" });
+    }
+
+    const classroom = await Classroom.findOne({ code });
+    if (!classroom) {
+      return res.status(404).json({ ok: false, message: "Classroom not found" });
+    }
+
+    const poll = (Array.isArray(classroom.discussionPolls) ? classroom.discussionPolls : []).find((entry) => String(entry.id) === pollId);
+    if (!poll || optionIndex < 0 || optionIndex >= poll.options.length) {
+      return res.status(400).json({ ok: false, message: "Invalid poll or option" });
+    }
+
+    poll.votesByUser = poll.votesByUser && typeof poll.votesByUser === "object" ? poll.votesByUser : {};
+    const previousVote = poll.votesByUser[String(req.user.sub)];
+    if (Number.isInteger(previousVote) && poll.options[previousVote]) {
+      poll.options[previousVote].votes = Math.max(0, Number(poll.options[previousVote].votes || 0) - 1);
+    }
+
+    poll.options[optionIndex].votes = Number(poll.options[optionIndex].votes || 0) + 1;
+    poll.votesByUser[String(req.user.sub)] = optionIndex;
+
+    await classroom.save();
+
+    io.to(code).emit("discussion-poll-update", poll);
+    return res.json({ ok: true, poll });
+  } catch (error) {
+    console.error("[POST /auth/classrooms/:code/discussion/poll/:pollId/vote]", error?.message || error);
+    return res.status(500).json({ ok: false, message: "Error voting on poll", detail: error?.message });
   }
 });
 
@@ -532,6 +842,7 @@ attachSocketHandlers(io, {
   Classroom,
   activeClassrooms,
   createActiveSessionFromClassroom,
+  getUserFromSocket,
   getNextAvailableSlot,
   broadcastSnapshot,
   emitExistingPeers,

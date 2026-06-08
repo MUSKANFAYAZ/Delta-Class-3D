@@ -45,6 +45,22 @@ const classroomSchema = new mongoose.Schema(
       of: Number,
       default: new Map(),
     },
+    approvedStudentIds: {
+      type: [String],
+      default: [],
+      description: "List of students approved to join the classroom",
+    },
+    pendingJoinRequests: {
+      type: [
+        {
+          userId: { type: String, trim: true },
+          displayName: { type: String, default: "", trim: true },
+          createdAt: { type: Date, default: Date.now },
+        }
+      ],
+      default: [],
+      description: "Student join requests awaiting teacher approval",
+    },
     studentPositions: {
       type: Map,
       of: {

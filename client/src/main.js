@@ -148,8 +148,8 @@ async function startSocketClassroom({ role, roomCode }) {
   const socket = io({
     path: "/socket.io",
     transports: ["websocket", "polling"],
-    auth: { role, roomCode, displayName: localStorage.getItem("delta-user-display") || "" },
-    query: { role, roomCode },
+    auth: { role, roomCode, token: getToken(), displayName: localStorage.getItem("delta-user-display") || "" },
+    query: { role, roomCode, token: getToken() },
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 500,
@@ -672,7 +672,12 @@ async function renderRoute() {
         const joinResult = await api(`/classrooms/${encodeURIComponent(room)}/join`, {
           method: "POST",
         });
-        if (joinResult?.teacherPresent === false) {
+        if (joinResult?.pending) {
+          localStorage.setItem(
+            "delta-dashboard-notice",
+            joinResult.message || "Join request sent. Wait for teacher approval.",
+          );
+        } else if (joinResult?.teacherPresent === false) {
           localStorage.setItem(
             "delta-dashboard-notice",
             "Class added. Session has not started yet; wait for the teacher to enter the classroom.",
@@ -724,6 +729,7 @@ async function renderRoute() {
     let roomPageInstance = mountRoomPage(appRoot, {
       roomCode,
       role: roomRole,
+      api,
       onExit: (exitAction) => {
         // Cleanup VoiceSystem before exiting
         if (roomPageInstance && roomPageInstance.cleanupVoiceSystem) {
@@ -768,6 +774,7 @@ async function renderRoute() {
     mountRoomToolPage(appRoot, {
       role: routeRole,
       roomCode,
+      api,
       onBack: () => navigate(`/classroom?role=${routeRole}&code=${encodeURIComponent(roomCode)}`),
       onDashboard: () => navigate(`/dashboard?role=${routeRole}`),
     });

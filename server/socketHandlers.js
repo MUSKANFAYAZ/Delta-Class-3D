@@ -6,6 +6,7 @@ module.exports = function attachSocketHandlers(io, deps) {
     Classroom,
     activeClassrooms,
     createActiveSessionFromClassroom,
+    getUserFromSocket,
     getNextAvailableSlot,
     broadcastSnapshot,
     emitExistingPeers,
@@ -92,7 +93,34 @@ module.exports = function attachSocketHandlers(io, deps) {
       }
 
       const activeSession = activeClassrooms.get(roomCode);
+      const user = getUserFromSocket(socket);
+      const userId = String(user?.sub || "").trim();
+
+      if (role === "teacher" && classroom && classroom.createdBy && String(classroom.createdBy) !== userId) {
+        socket.emit("room-error", { message: "Teacher not authorized for this classroom." });
+        socket.disconnect(true);
+        return;
+      }
+
+      if (role === "student") {
+        if (!userId) {
+          socket.emit("room-error", { message: "Authentication required to join as a student." });
+          socket.disconnect(true);
+          return;
+        }
+
+        const approvedIds = Array.isArray(classroom?.approvedStudentIds)
+          ? classroom.approvedStudentIds.map((entry) => String(entry).trim())
+          : [];
+        if (!approvedIds.includes(userId)) {
+          socket.emit("room-error", { message: "You are not approved to join this class yet. Please wait until the teacher approves your request." });
+          socket.disconnect(true);
+          return;
+        }
+      }
+
       socket.data.roomCode = roomCode;
+      socket.data.userId = userId;
       socket.join(roomCode);
 
       // Record display name if provided by client

@@ -445,6 +445,12 @@ body {
   display: grid;
   gap: 10px;
   box-shadow: var(--dc-shadow);
+  transition: all 0.3s ease;
+}
+
+.dc-raise-hand-panel[hidden],
+.dc-raise-hand-panel:not([hidden]) {
+  transition: all 0.3s ease;
 }
 
 /* left-side collapsed tab for raised hands */

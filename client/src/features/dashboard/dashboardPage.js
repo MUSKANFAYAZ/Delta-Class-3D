@@ -233,8 +233,10 @@ export function mountDashboard(
       toolWrap.style.gap = '8px';
       toolWrap.style.marginTop = '10px';
       toolWrap.innerHTML = `
-        <button type="button" class="dc-btn dc-btn-ghost dc-discussion-card-btn">Discussion</button>
-        <button type="button" class="dc-btn dc-btn-ghost dc-notes-card-btn">Notes</button>
+        <button type="button" class="dc-btn dc-btn-ghost dc-discussion-card-btn" title="Open discussion">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px; vertical-align: middle;"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>Discussion
+        </button>
+        <button type="button" class="dc-btn dc-btn-ghost dc-notes-card-btn" title="Open notes">Notes</button>
       `;
       card.appendChild(toolWrap);
 

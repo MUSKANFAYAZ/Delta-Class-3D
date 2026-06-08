@@ -31,18 +31,9 @@ export class VoiceSystem {
 
   shouldConnectToPeer(peer) {
     const peerId = typeof peer === "string" ? peer : peer?.userId;
-    const peerRole = typeof peer === "string" ? null : peer?.role;
-
     if (!peerId || peerId === this.currentUserId) {
       return false;
     }
-
-    // In larger rooms, prefer teacher-priority mesh to reduce total P2P fan-out.
-    // This is an interim mode until SFU/media relay is enabled.
-    if (this.teacherOnlyMesh && this.currentRole === "student") {
-      return peerRole === "teacher";
-    }
-
     return true;
   }
 
@@ -82,7 +73,9 @@ export class VoiceSystem {
 
   applyVoiceScalingState(payload = {}) {
     this.meshParticipantLimit = Number(payload.meshParticipantLimit || this.meshParticipantLimit || 12);
-    this.teacherOnlyMesh = String(payload.topology || "") === "teacher-priority-mesh";
+    // Do not enforce teacher-only mesh in this implementation.
+    // Keep the scaling banner as a recommendation, but allow full-mesh audio connectivity.
+    this.teacherOnlyMesh = false;
     this.upsertVoiceScalingBanner(payload);
 
     if (payload?.recommendRelay) {
@@ -309,12 +302,7 @@ export class VoiceSystem {
     this.socket.on("webrtc-offer", async ({ caller, callerRole, offer }) => {
       try {
         if (!this.shouldConnectToPeer({ userId: caller, role: callerRole || null })) {
-          if (this.teacherOnlyMesh && this.currentRole === "student") {
-            if (this.peers.has(caller)) {
-              this.closePeer(caller);
-            }
-            return;
-          }
+          return;
         }
 
         console.log(`[VoiceSystem] Received offer from ${caller}`);

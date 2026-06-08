@@ -16,7 +16,7 @@ function formatTime(timestamp) {
   }
 }
 
-export function mountRoomToolPage(root, { role = "student", roomCode = "", onBack, onDashboard } = {}) {
+export function mountRoomToolPage(root, { role = "student", roomCode = "", api, onBack, onDashboard } = {}) {
   root.innerHTML = "";
 
   const socket = window.activeClassroomSocket || null;
@@ -99,6 +99,23 @@ export function mountRoomToolPage(root, { role = "student", roomCode = "", onBac
     polls: [],
   };
 
+  const getCurrentUserId = () => {
+    try {
+      const token = localStorage.getItem("delta-access-token") || "";
+      const payload = token.split(".")[1];
+      if (!payload) return null;
+      const decoded = JSON.parse(decodeURIComponent(escape(window.atob(payload.replace(/-/g, "+").replace(/_/g, "/")))));
+      return decoded?.sub || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const currentUserId = getCurrentUserId();
+  const discussionApi = api
+    ? (path, options = {}) => api(`/classrooms/${encodeURIComponent(roomCode)}${path}`, options)
+    : null;
+
   const renderParticipants = (participants = []) => {
     if (participantsCount) participantsCount.textContent = String(participants.length || 0);
     if (!participantsList) return;
@@ -135,12 +152,32 @@ export function mountRoomToolPage(root, { role = "student", roomCode = "", onBac
     }).join("");
 
     pollsList.querySelectorAll(".dc-discussion-poll-option").forEach((button) => {
-      button.addEventListener("click", () => {
-        if (!socket) return;
-        socket.emit("discussion-vote", {
-          pollId: button.dataset.pollId,
-          optionIndex: Number(button.dataset.optionIndex),
-        });
+      button.addEventListener("click", async () => {
+        const pollId = button.dataset.pollId;
+        const optionIndex = Number(button.dataset.optionIndex);
+        if (!pollId || Number.isNaN(optionIndex)) return;
+
+        if (socket) {
+          socket.emit("discussion-vote", { pollId, optionIndex });
+          return;
+        }
+
+        if (discussionApi) {
+          try {
+            const response = await discussionApi(`/discussion/poll/${encodeURIComponent(pollId)}/vote`, {
+              method: "POST",
+              body: { optionIndex },
+            });
+            if (response?.ok && response.poll) {
+              const index = discussionState.polls.findIndex((entry) => String(entry.id) === String(response.poll.id));
+              if (index >= 0) discussionState.polls[index] = response.poll;
+              else discussionState.polls.unshift(response.poll);
+              renderPolls();
+            }
+          } catch (err) {
+            console.error("Could not submit poll vote", err);
+          }
+        }
       });
     });
   };
@@ -153,6 +190,11 @@ export function mountRoomToolPage(root, { role = "student", roomCode = "", onBac
     }
 
     feed.innerHTML = discussionState.feed.map((item) => {
+      const isOwnMessage = currentUserId && String(item.userId) === String(currentUserId);
+      const deleteButton = isOwnMessage
+        ? `<button type="button" class="dc-discussion-delete" data-message-id="${escapeHtml(item.id)}">Delete</button>`
+        : "";
+
       if (item.type === "image") {
         return `
           <article class="dc-discussion-entry dc-discussion-entry--image">
@@ -160,6 +202,7 @@ export function mountRoomToolPage(root, { role = "student", roomCode = "", onBac
             <div class="dc-discussion-image-wrap">
               <img src="${escapeHtml(item.dataUrl)}" alt="${escapeHtml(item.name || "shared image")}" />
             </div>
+            ${deleteButton}
           </article>
         `;
       }
@@ -168,9 +211,36 @@ export function mountRoomToolPage(root, { role = "student", roomCode = "", onBac
         <article class="dc-discussion-entry">
           <div class="dc-discussion-entry-meta">${escapeHtml(item.displayName || item.userId || "Unknown")} · ${formatTime(item.createdAt)}</div>
           <p>${escapeHtml(item.text || "")}</p>
+          ${deleteButton}
         </article>
       `;
     }).join("");
+
+    if (feed) {
+      feed.querySelectorAll(".dc-discussion-delete").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const messageId = button.dataset.messageId;
+          if (!messageId) return;
+          try {
+            if (socket) {
+              const response = await discussionApi?.(`/discussion/message/${encodeURIComponent(messageId)}`, { method: "DELETE" });
+              if (response?.ok) {
+                discussionState.feed = discussionState.feed.filter((item) => String(item.id) !== messageId);
+                renderFeed();
+              }
+            } else if (discussionApi) {
+              const response = await discussionApi(`/discussion/message/${encodeURIComponent(messageId)}`, { method: "DELETE" });
+              if (response?.ok) {
+                discussionState.feed = discussionState.feed.filter((item) => String(item.id) !== messageId);
+                renderFeed();
+              }
+            }
+          } catch (err) {
+            console.error("Could not delete message", err);
+          }
+        });
+      });
+    }
   };
 
   if (socket) {
@@ -202,35 +272,86 @@ export function mountRoomToolPage(root, { role = "student", roomCode = "", onBac
     });
   } else {
     renderParticipants([]);
+    if (discussionApi) {
+      discussionApi("/discussion")
+        .then((response) => {
+          if (!response?.ok) return;
+          discussionState.feed = Array.isArray(response.feed) ? [...response.feed] : [];
+          discussionState.polls = Array.isArray(response.polls) ? [...response.polls] : [];
+          renderFeed();
+          renderPolls();
+        })
+        .catch((error) => {
+          console.error("Could not load discussion state", error);
+        });
+    }
   }
 
   backButton?.addEventListener("click", () => onBack?.());
   dashboardButton?.addEventListener("click", () => onDashboard?.());
 
-  messageForm?.addEventListener("submit", (event) => {
+  messageForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const text = String(messageInput?.value || "").trim();
-    if (!text || !socket) return;
-    socket.emit("discussion-message", {
-      text,
-      displayName: localStorage.getItem("delta-user-display") || "",
-    });
+    if (!text) return;
+
+    if (socket) {
+      socket.emit("discussion-message", {
+        text,
+        displayName: localStorage.getItem("delta-user-display") || "",
+      });
+      messageInput.value = "";
+      return;
+    }
+
+    if (!discussionApi) return;
+    try {
+      const response = await discussionApi("/discussion/message", {
+        method: "POST",
+        body: { text },
+      });
+      if (response?.ok && response.item) {
+        discussionState.feed = Array.isArray(discussionState.feed) ? [...discussionState.feed, response.item] : [response.item];
+        renderFeed();
+      }
+    } catch (err) {
+      console.error("Could not send message", err);
+    }
     messageInput.value = "";
   });
 
-  createPollButton?.addEventListener("click", () => {
-    if (!socket) return;
+  createPollButton?.addEventListener("click", async () => {
     const question = String(pollQuestionInput?.value || "").trim();
     const options = String(pollOptionsInput?.value || "")
       .split(/\r?\n/g)
       .map((option) => option.trim())
       .filter(Boolean);
     if (!question || options.length < 2) return;
-    socket.emit("discussion-poll", {
-      question,
-      options,
-      displayName: localStorage.getItem("delta-user-display") || "",
-    });
+
+    if (socket) {
+      socket.emit("discussion-poll", {
+        question,
+        options,
+        displayName: localStorage.getItem("delta-user-display") || "",
+      });
+      pollQuestionInput.value = "";
+      pollOptionsInput.value = "";
+      return;
+    }
+
+    if (!discussionApi) return;
+    try {
+      const response = await discussionApi("/discussion/poll", {
+        method: "POST",
+        body: { question, options },
+      });
+      if (response?.ok && response.poll) {
+        discussionState.polls = [response.poll, ...discussionState.polls];
+        renderPolls();
+      }
+    } catch (err) {
+      console.error("Could not post poll", err);
+    }
     pollQuestionInput.value = "";
     pollOptionsInput.value = "";
   });

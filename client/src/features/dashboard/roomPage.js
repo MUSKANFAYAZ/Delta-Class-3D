@@ -1,4 +1,4 @@
-export function mountRoomPage(root, { roomCode, role, onExit }) {
+export function mountRoomPage(root, { roomCode, role, api, onExit }) {
 
   root.innerHTML = "";
 
@@ -35,7 +35,7 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
                 <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
               </svg>
             </button>
-          ` : `<button id="discussion-button" type="button" class="dc-btn dc-btn-secondary">Discussion</button>`}
+          ` : ``}
           <button id="mute-button" type="button" class="dc-btn dc-btn-ghost dc-room-icon-btn" data-tooltip="Unmute Mic">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="1" y1="1" x2="23" y2="23"></line>
@@ -52,6 +52,11 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
             <summary class="dc-room-participants-summary">Participants (<span id="participants-count">0</span>)</summary>
             <ul class="dc-room-participants-list" id="participants-list"></ul>
           </details>
+          <section class="dc-pending-requests-panel" id="pending-requests-panel">
+            <h3 class="dc-pending-requests-title">Pending Join Requests</h3>
+            <div id="pending-requests-empty" class="dc-muted dc-small">No pending join requests</div>
+            <ul class="dc-pending-requests-list" id="pending-requests-list"></ul>
+          </section>
         ` : ""}
 
       </header>
@@ -100,24 +105,16 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
   const raiseHandList = wrap.querySelector("#raise-hand-list");
   // collapsed left-side tab shown when no raised hands
   let raiseHandTab = null;
-  const discussionButton = wrap.querySelector("#discussion-button");
   const participantsCount = wrap.querySelector("#participants-count");
   const participantsList = wrap.querySelector("#participants-list");
+  const pendingRequestsPanel = wrap.querySelector("#pending-requests-panel");
+  const pendingRequestsList = wrap.querySelector("#pending-requests-list");
+  const pendingRequestsEmpty = wrap.querySelector("#pending-requests-empty");
   const noticeBanner = document.createElement("div");
   noticeBanner.className = "dc-room-notice";
   noticeBanner.hidden = true;
   wrap.appendChild(noticeBanner);
   let raiseHandListenersBound = false;
-  const raiseHandState = new Map();
-  const roomCodeParam = roomCode;
-
-  const renderParticipants = (participants = []) => {
-    if (participantsCount) participantsCount.textContent = String(participants.length || 0);
-    if (!participantsList) return;
-    participantsList.innerHTML = participants.length
-      ? participants.map((participant) => `<li>${participant.displayName || participant.userId || "Unknown"}</li>`).join("")
-      : "<li>No participants yet</li>";
-  };
 
   const setMuteButtonState = (isMuted) => {
     if (!muteButton) return;
@@ -138,12 +135,6 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
       if (noticeBanner.isConnected) noticeBanner.hidden = true;
     }, 3500);
   };
-
-  if (discussionButton && roomCodeParam) {
-    discussionButton.addEventListener("click", () => {
-      window.location.hash = `/group-discussion?role=${role}&code=${encodeURIComponent(roomCodeParam)}`;
-    });
-  }
 
   // Initialize Voice System when socket becomes available
   const initializeVoiceSystem = async () => {
@@ -285,7 +276,16 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
         const clearBtn = document.createElement("button");
         clearBtn.type = "button";
         clearBtn.className = "dc-btn dc-btn-ghost dc-clear-btn";
-        clearBtn.textContent = "Clear";
+        clearBtn.innerHTML = `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 19c3.31 0 6-2.69 6-6V8"></path>
+            <path d="M6 12v5c0 3.31 2.69 6 6 6"></path>
+            <path d="M12 19v4"></path>
+            <path d="M8 23h8"></path>
+            <path d="M18.5 2a3 3 0 0 0-3 3v4"></path>
+            <path d="M7.5 2a3 3 0 0 1 3 3v4"></path>
+          </svg>
+        `;
         clearBtn.addEventListener("click", () => {
           window.activeClassroomSocket.emit("clear-raise-hand", { userId });
         });
@@ -340,30 +340,67 @@ export function mountRoomPage(root, { roomCode, role, onExit }) {
       renderParticipants(Array.isArray(participants) ? participants : []);
     });
 
+    if (role === "teacher") {
+      window.activeClassroomSocket.on("pending-requests-updated", loadPendingRequests);
+      loadPendingRequests();
+    }
+
     window.activeClassroomSocket.emit("request-raise-hand-list");
     window.activeClassroomSocket.emit("request-discussion-state");
   };
 
   // Start checking for socket connection
   checkAndInitializeVoice();
-  // create left-side collapsed tab to show when there are no raised hands
+
+  if (role === "teacher" && pendingRequestsList) {
+    pendingRequestsList.addEventListener("click", handlePendingRequestAction);
+  }
+  // create right-side collapsed tab to show raised hands on hover
   if (role === "teacher") {
     raiseHandTab = document.createElement("button");
     raiseHandTab.className = "dc-raise-hand-tab dc-btn dc-btn-ghost";
     raiseHandTab.type = "button";
     raiseHandTab.title = "Raised Hands";
-    raiseHandTab.textContent = "Raised Hands";
+    raiseHandTab.innerHTML = `
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
+        <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
+        <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
+        <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
+        <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
+      </svg>
+    `;
     raiseHandTab.style.position = "fixed";
-    raiseHandTab.style.left = "6px";
+    raiseHandTab.style.right = "6px";
     raiseHandTab.style.top = "50%";
-    raiseHandTab.style.transform = "translateY(-50%) rotate(-90deg)";
-    raiseHandTab.style.zIndex = 9999;
+    raiseHandTab.style.transform = "translateY(-50%)";
+    raiseHandTab.style.zIndex = "9998";
     raiseHandTab.style.padding = "8px 12px";
-    raiseHandTab.addEventListener("click", () => {
-      if (raiseHandPanel) raiseHandPanel.hidden = !raiseHandPanel.hidden;
+    
+    // Hover to expand/collapse
+    raiseHandTab.addEventListener("mouseenter", () => {
+      if (raiseHandPanel) {
+        raiseHandPanel.hidden = false;
+        raiseHandPanel.style.transition = "all 0.3s ease";
+      }
     });
+    raiseHandTab.addEventListener("mouseleave", () => {
+      if (raiseHandPanel && !raiseHandPanel.querySelector(":hover")) {
+        raiseHandPanel.hidden = true;
+      }
+    });
+    
     document.body.appendChild(raiseHandTab);
-    if (raiseHandPanel) raiseHandPanel.hidden = true;
+    if (raiseHandPanel) {
+      raiseHandPanel.hidden = true;
+      // Keep panel visible on hover
+      raiseHandPanel.addEventListener("mouseenter", () => {
+        raiseHandPanel.hidden = false;
+      });
+      raiseHandPanel.addEventListener("mouseleave", () => {
+        raiseHandPanel.hidden = true;
+      });
+    }
   }
   // Modal functionality
   const exitBtn = wrap.querySelector("#dc-room-exit");
