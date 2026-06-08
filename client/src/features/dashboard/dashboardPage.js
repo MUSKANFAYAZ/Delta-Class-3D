@@ -190,11 +190,16 @@ export function mountDashboard(
           (room.timing ? "<div><strong>Time:</strong> " + room.timing + "</div>" : "") +
           "</div>";
       }
+      const pendingBadge = room.pending
+        ? '<div class="dc-room-card-status dc-room-card-status--pending">Pending approval</div>'
+        : "";
+
       card.innerHTML = `
           <div class="dc-room-card-top">
             <span class="dc-room-badge ${host ? "dc-room-badge--teacher" : "dc-room-badge--student"}">
               ${host ? "Created - Teacher" : "Joined - Student"}
             </span>
+            ${pendingBadge}
           </div>
           <h3 class="dc-room-code-lg">${room.code}</h3>
           ${extraInfo}

@@ -332,6 +332,7 @@ async function resolveExistingRooms() {
         participants: Number(room.participants || 0),
         participantNames: Array.isArray(room.participantNames) ? room.participantNames : [],
         at: room.createdAt || room.at || Date.now(),
+        pending: Boolean(room.pending),
       };
     });
 }

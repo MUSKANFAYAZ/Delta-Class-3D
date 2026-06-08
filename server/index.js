@@ -360,7 +360,7 @@ app.get("/auth/classrooms", authMiddleware, async (req, res) => {
         .limit(100)
         .lean();
     } else {
-      // Students see classrooms they are approved to join
+      // Students see classrooms they are approved to join or have requested to join
       const allClassrooms = await Classroom.find({})
         .sort({ createdAt: -1 })
         .limit(100)
@@ -370,7 +370,10 @@ app.get("/auth/classrooms", authMiddleware, async (req, res) => {
         const approvedIds = Array.isArray(classroom.approvedStudentIds)
           ? classroom.approvedStudentIds.map((entry) => String(entry).trim())
           : [];
-        return approvedIds.includes(userId);
+        const pendingIds = Array.isArray(classroom.pendingJoinRequests)
+          ? classroom.pendingJoinRequests.map((entry) => String(entry.userId).trim())
+          : [];
+        return approvedIds.includes(userId) || pendingIds.includes(userId);
       });
     }
 
@@ -381,6 +384,14 @@ app.get("/auth/classrooms", authMiddleware, async (req, res) => {
       const activeSession = activeClassrooms.get(code);
       const hasCreator = Boolean(classroom.createdBy);
       const participantDetails = await resolveParticipantDetails(classroom, activeSession);
+      const approvedIds = Array.isArray(classroom.approvedStudentIds)
+        ? classroom.approvedStudentIds.map((entry) => String(entry).trim())
+        : [];
+      const pendingIds = Array.isArray(classroom.pendingJoinRequests)
+        ? classroom.pendingJoinRequests.map((entry) => String(entry.userId).trim())
+        : [];
+      const isPending = !approvedIds.includes(userId) && pendingIds.includes(userId);
+
       return {
         code,
         subject: classroom.subject || "",
@@ -392,6 +403,7 @@ app.get("/auth/classrooms", authMiddleware, async (req, res) => {
         participants: participantDetails.participants || (classroom.studentAssignments?.size || 0) + (classroom.teacherPositions?.size || 0),
         participantNames: participantDetails.participantNames,
         canDelete: (hasCreator && String(classroom.createdBy || "") === userId) || (!hasCreator && role === "teacher"),
+        pending: isPending,
       };
     }));
 

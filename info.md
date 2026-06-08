@@ -163,7 +163,14 @@ Inside `startClassroom`:
   - Student: just exit
   - Teacher: take break OR end class
 - Reload warning before refresh
-- Raise hand and teacher moderation panel
+- **Raise-hand panel (Teacher only)**:
+  - Fixed **right-side corner tab** with hand-raise icon
+  - Collapses by default when entering classroom
+  - **Hover-activated expand**: hovering over the corner tab or panel expands it with smooth 0.3s transition
+  - Shows list of students with raised hands
+  - Each student has **mute/unmute button** and **clear hand** button
+  - Clear button displays **hand-down symbol** (not blank)
+  - Teacher can toggle student mute state via icons
 - Mute button synced with voice system
 
 ---
@@ -198,7 +205,11 @@ File: `client/src/features/dashboard/dashboardPage.js`
 What it does:
 - top actions: create / join / login(profile menu)
 - shows classroom cards fetched through `onResolveRooms`
-- open selected room
+- each card displays: room code, timing, subject, capacity, and participants
+- quick-access buttons at card bottom:
+  - **Discussion button** (with 💬 icon) — accessible to both teachers and students; navigates to `/group-discussion` page
+  - Notes button — opens notes page
+- open selected room by clicking card
 - delete classroom button for creator only
 - periodic room sync every 15 seconds
 
@@ -222,9 +233,15 @@ What it does:
 File: `client/src/features/dashboard/roomPage.js`
 
 What it does:
-- compact room shell UI
-- socket-linked voice and raise-hand controls
+- compact room shell UI for alternative classroom access
+- socket-linked voice controls (mute/unmute button)
+- **Raise-hand panel** (Teacher only):
+  - hidden by default
+  - right-side **corner tab with hand-raise icon** for visibility
+  - expands on hover with smooth transition
+  - shows students with raised hands + their mute/clear states
 - exit modal with teacher/student branching
+- pending join requests panel (teacher only) with approve/reject buttons
 
 ### `/profile` page
 File: `client/src/features/profile/profilePage.js`
@@ -233,6 +250,27 @@ What it does:
 - calls `/auth/me`
 - displays user details
 - shows role-specific quick action
+
+### `/group-discussion` page
+File: `client/src/features/dashboard/groupDiscussionPage.js`
+
+What it does:
+- real-time discussion thread with messages, polls, and image sharing
+- **Accessible to both teachers and students**
+- **Features**:
+  - Message feed with user metadata
+  - Send messages with real-time socket sync + REST persistence to MongoDB
+  - **Delete functionality**: senders can delete their own messages; teachers can delete any message
+  - Create polls with real-time voting
+  - Vote tracking (stored in database)
+  - Image upload and sync
+  - Hybrid sync: socket events for real-time UI + REST endpoints for database persistence
+- **Backend endpoints** (all authenticated):
+  - `GET /classrooms/:code/discussion` — fetch persisted discussion state
+  - `POST /classrooms/:code/discussion/message` — create message
+  - `DELETE /classrooms/:code/discussion/message/:messageId` — delete message (sender or teacher only)
+  - `POST /classrooms/:code/discussion/poll` — create poll
+  - `DELETE /classrooms/:code/discussion/poll/:pollId` — delete poll
 
 ### `/classroom` page
 Main full classroom route described in section 4A.
@@ -454,6 +492,11 @@ Required env vars:
 - `client/package.json` currently includes backend packages (`express`, `mongoose`, `dotenv`, etc.) that are not needed in browser bundle. The app still works, but this can be cleaned.
 - There is both `#/classroom` and `#/room` classroom-style route support (legacy/new path coexistence).
 - Voice system includes reconnection and SDP tuning logic for unstable networks.
+- **Recent UI/UX improvements (v2 release)**:
+  - Raise-hand panel now collapses to a corner tab by default with hover-to-expand behavior for better screen space efficiency
+  - Hand-down state displays a clear symbol (not blank) for better clarity
+  - Discussion button moved from classroom page to dashboard cards with chat icon, accessible to both teachers and students for improved accessibility
+  - All raise-hand and discussion features persist to MongoDB for offline access and history
 
 ### 14) Low-bandwidth (2G/3G) behavior — comparison with Zoom / Google Meet / Google Classroom
 
