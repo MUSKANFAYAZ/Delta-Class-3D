@@ -109,12 +109,17 @@ module.exports = function attachSocketHandlers(io, deps) {
         const approvedIds = Array.isArray(classroom?.approvedStudentIds)
           ? classroom.approvedStudentIds.map((entry) => String(entry).trim())
           : [];
+          
         if (!approvedIds.includes(userId)) {
-          // --- FIX: Tell the teacher room to pull down the newly saved database entry immediately ---
-          io.to(roomCode).emit("pending-requests-updated");
+          // --- FIX: Keep them connected as a restricted spectator room listener ---
+          socket.data.roomCode = roomCode;
+          socket.data.userId = userId;
+          socket.join(roomCode);
 
-          socket.emit("room-error", { message: "You are not approved to join this class yet. Please wait until the teacher approves your request." });
-          socket.disconnect(true);
+          // Tell the teacher room over native websockets to pull down the list immediately
+          io.to(roomCode).emit("pending-requests-updated", { approved: null, studentUserId: userId });
+
+          socket.emit("admission-pending", { message: "Your request is pending teacher approval. Please stay on this screen." });
           return;
         }
       }
