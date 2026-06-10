@@ -225,7 +225,7 @@ module.exports = function attachSocketHandlers(io, deps) {
           await classroom.save().catch((err) => console.error("Error saving classroom:", err));
         }
 
-        io.to(roomCode).emit("blackboard-stroke", stroke);
+        socket.to(roomCode).emit("blackboard-stroke", stroke);
       });
 
       socket.on("request-discussion-state", () => {

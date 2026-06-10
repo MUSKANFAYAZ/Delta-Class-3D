@@ -267,6 +267,12 @@ export function mountRoomToolPage(root, { role = "student", roomCode = "", api, 
       renderPolls();
     });
 
+    socket.on("discussion-delete", ({ id } = {}) => {
+      if (!id) return;
+      discussionState.feed = discussionState.feed.filter((item) => String(item.id) !== String(id));
+      renderFeed();
+    });
+
     socket.on("participants-state", ({ participants = [] } = {}) => {
       renderParticipants(Array.isArray(participants) ? participants : []);
     });
@@ -357,17 +363,32 @@ export function mountRoomToolPage(root, { role = "student", roomCode = "", api, 
   });
 
   sendImageButton?.addEventListener("click", () => {
-    if (!socket || !imageInput?.files?.length) return;
+    if (!imageInput?.files?.length) return;
     const file = imageInput.files[0];
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       const dataUrl = String(reader.result || "");
       if (!dataUrl.startsWith("data:image/")) return;
-      socket.emit("discussion-image", {
-        name: file.name,
-        dataUrl,
-        displayName: localStorage.getItem("delta-user-display") || "",
-      });
+      if (socket) {
+        socket.emit("discussion-image", {
+          name: file.name,
+          dataUrl,
+          displayName: localStorage.getItem("delta-user-display") || "",
+        });
+      } else if (discussionApi) {
+        try {
+          const response = await discussionApi("/discussion/image", {
+            method: "POST",
+            body: { name: file.name, dataUrl },
+          });
+          if (response?.ok && response.item) {
+            discussionState.feed = Array.isArray(discussionState.feed) ? [...discussionState.feed, response.item] : [response.item];
+            renderFeed();
+          }
+        } catch (error) {
+          console.error("Could not send image", error);
+        }
+      }
       imageInput.value = "";
     };
     reader.readAsDataURL(file);

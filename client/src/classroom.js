@@ -3,6 +3,8 @@ import { setupLighting } from "../classroom/Lighting.js";
 import { setupEnvironment } from "../classroom/Environment.js";
 import { createClassroomFurniture } from "../classroom/Furniture.js";
 import { attachClassroomSocketSync } from "../classroom/SocketSync.js";
+import { createClassroomMovement } from "../classroom/Movement.js";
+import { attachStudentKeyboardControls } from "../classroom/InputControls.js";
 
 export function startClassroom(socket, role, options = {}) {
   const container = document.getElementById("canvas-container");
@@ -18,17 +20,62 @@ export function startClassroom(socket, role, options = {}) {
   setupLighting(scene, { lowBandwidth });
   const { blackboard } = setupEnvironment(scene);
 
-  const { teacher } = createClassroomFurniture(scene, { lowBandwidth, strictLowBandwidth });
-
-  const noop = () => {};
+  const { studentSlots, staticObstacles, teacher } = createClassroomFurniture(scene, { lowBandwidth, strictLowBandwidth });
+  const movement = createClassroomMovement({
+    studentSlots,
+    staticObstacles,
+    teacher,
+  });
 
   attachClassroomSocketSync({
     socket,
-    assignStudentToUser: noop,
-    moveAssignedStudent: noop,
-    moveTeacherByDirection: noop,
+    assignStudentToUser: movement.assignStudentToUser,
+    moveAssignedStudent: movement.moveAssignedStudent,
+    moveTeacherByDirection: movement.moveTeacherByDirection,
     teacher,
   });
+
+  let controlsAttached = false;
+  const attachLocalControls = () => {
+    if (controlsAttached) return;
+    controlsAttached = true;
+
+    if (role === "student") {
+      attachStudentKeyboardControls({
+        socket,
+        role,
+        localUserId: socket.id,
+        assignStudentToUser: movement.assignStudentToUser,
+        moveAssignedStudent: movement.moveAssignedStudent,
+      });
+      return;
+    }
+
+    if (role === "teacher") {
+      const keyToDirection = {
+        ArrowUp: "up",
+        ArrowDown: "down",
+        ArrowLeft: "left",
+        ArrowRight: "right",
+      };
+      window.addEventListener("keydown", (event) => {
+        const direction = keyToDirection[event.key];
+        if (!direction || event.target?.closest?.("input, textarea, select, button")) return;
+        event.preventDefault();
+        movement.moveTeacherByDirection(direction);
+        socket.emit("teacher-move", {
+          x: teacher.position.x,
+          z: teacher.position.z,
+        });
+      });
+    }
+  };
+
+  if (socket.connected && socket.id) {
+    attachLocalControls();
+  } else {
+    socket.once("connect", attachLocalControls);
+  }
 
   // Presentation synchronization via ImageSync
   import("../classroom/ImageSync.js").then(({ setupImageSync }) => {

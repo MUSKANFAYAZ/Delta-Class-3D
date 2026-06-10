@@ -184,6 +184,9 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
           const nextMuted = !(raiseHandState.get(userId)?.muted ?? isMuted);
           raiseHandState.set(userId, { muted: nextMuted });
           window.activeClassroomSocket.emit("teacher-set-audio-state", { target: userId, muted: nextMuted });
+          if (!nextMuted) {
+            window.activeClassroomSocket.emit("clear-raise-hand", { userId });
+          }
         });
 
         const clearBtn = document.createElement("button");
@@ -222,8 +225,10 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
         muted: li.dataset.muted === "true",
       }));
       if (!current.some((entry) => entry.userId === userId)) {
-        renderRaiseHands([...current, { userId, displayName }]);
+        renderRaiseHands([...current, { userId, displayName, muted: true }]);
       }
+      connectionStatus.textContent = `${displayName || "Student"} requested microphone access.`;
+      connectionBadge.textContent = "Mic request";
     });
 
     window.activeClassroomSocket.emit("request-raise-hand-list");
@@ -251,9 +256,13 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
     raiseHandButton.innerHTML = raised
       ? `
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 21v-7"></path>
-          <path d="M15 14V5a3 3 0 0 0-6 0v9"></path>
-          <path d="M12 21c-1.2 0-2.8-0.8-4-2"></path>
+          <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
+          <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
+          <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
+          <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
+          <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
+          <path d="M20 4v6"></path>
+          <path d="M17 7l3 3 3-3"></path>
         </svg>
       `
       : `

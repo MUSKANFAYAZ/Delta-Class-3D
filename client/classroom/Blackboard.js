@@ -825,6 +825,7 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   socket.on("blackboard-stroke", onBlackboardStroke);
   socket.on("blackboard-clear", onBlackboardClear);
   socket.on("blackboard-snapshot", onBlackboardSnapshot);
+  socket.emit("request-blackboard");
 
   return {
     dispose: () => {

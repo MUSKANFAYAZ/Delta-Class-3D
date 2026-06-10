@@ -58,14 +58,33 @@ export function createClassroomLoader({
           activeSocket.disconnect();
           activeSocket = null;
         }
+        if (window.activeClassroomSocket && window.activeClassroomSocket !== activeSocket) {
+          try {
+            window.activeClassroomSocket.disconnect();
+          } catch {
+            // ignore stale socket cleanup issues
+          }
+          window.activeClassroomSocket = null;
+        }
 
         // Helper to create a fresh socket instance (used for forced clean reconnects)
         const createSocket = () => io({
           path: "/socket.io",
           // Prefer websocket first but keep polling as a fallback so reconnect can recover after idle tab/background throttling.
           transports: ["websocket", "polling"],
-          auth: { role, roomCode, canWriteBlackboard },
-          query: { role, roomCode, canWriteBlackboard: String(canWriteBlackboard) },
+          auth: {
+            role,
+            roomCode,
+            canWriteBlackboard,
+            token: localStorage.getItem("delta-access-token") || "",
+            displayName: localStorage.getItem("delta-user-display") || "",
+          },
+          query: {
+            role,
+            roomCode,
+            canWriteBlackboard: String(canWriteBlackboard),
+            token: localStorage.getItem("delta-access-token") || "",
+          },
           reconnection: true,
           reconnectionAttempts: Infinity,
           reconnectionDelay: 500,
@@ -171,6 +190,14 @@ export function createClassroomLoader({
               bootRequested = false;
             }
           }
+        });
+
+        socket.on("room-error", (payload = {}) => {
+          if (activeSocket !== socket) return;
+          const message = String(payload?.message || "Live sync could not join this classroom.");
+          setStatus(message, "Offline");
+          loadButton.disabled = false;
+          loadButton.textContent = "Retry load";
         });
       } catch (error) {
         bootPromise = null;

@@ -14,6 +14,7 @@ const AUTH = {
 const STORAGE = {
   network: "delta-network-profile",
 };
+const CLASS_ENDED_NOTICE = "Class ended by teacher.";
 let activeClassroomSocket = null;
 let activeClassroomLoader = null;
 let activeVoiceSystem = null;
@@ -139,6 +140,38 @@ function isLowBandwidthConnection() {
   return Boolean(connection?.saveData) || effectiveType === "slow-2g" || effectiveType === "2g";
 }
 
+async function ensureStudentCanEnterClassroom(roomCode) {
+  const joinResult = await api(`/classrooms/${encodeURIComponent(roomCode)}/join`, {
+    method: "POST",
+  });
+
+  if (joinResult?.pending) {
+    return {
+      ok: false,
+      message: joinResult.message || "Join request sent. Wait for teacher approval.",
+    };
+  }
+
+  if (joinResult?.teacherPresent === false) {
+    return {
+      ok: false,
+      message: "You are approved. Please wait for the teacher to enter the classroom.",
+    };
+  }
+
+  return { ok: true };
+}
+
+function sendStudentBackToDashboard(role, message = CLASS_ENDED_NOTICE, showModal = false) {
+  cleanupActiveClassroomConnection();
+  localStorage.removeItem("delta-active-room");
+  localStorage.setItem("delta-dashboard-notice", message);
+  if (showModal && role === "student") {
+    localStorage.setItem("delta-dashboard-modal", message);
+  }
+  navigate(`/dashboard?role=${role}`);
+}
+
 async function startSocketClassroom({ role, roomCode }) {
   const [{ io }, { startClassroom }] = await Promise.all([
     loadSocketClientModule(),
@@ -161,7 +194,6 @@ async function startSocketClassroom({ role, roomCode }) {
     const cleanup = () => {
       socket.off("connect", onConnect);
       socket.off("connect_error", onError);
-      socket.off("room-error", onRoomError);
     };
 
     const handleRoomDeleted = (message) => {
@@ -173,12 +205,11 @@ async function startSocketClassroom({ role, roomCode }) {
       cleanupActiveClassroomConnection();
       localStorage.removeItem("delta-active-room");
       removeSavedRoom(roomCode);
-      if (typeof message === "string" && /deleted/i.test(message)) {
-        localStorage.setItem("delta-dashboard-notice", message);
-      } else {
-        localStorage.setItem("delta-dashboard-notice", "This classroom has been deleted.");
-      }
-      navigate(`/dashboard?role=${role}`);
+      sendStudentBackToDashboard(
+        role,
+        typeof message === "string" && /deleted|ended/i.test(message) ? CLASS_ENDED_NOTICE : "This classroom has been deleted.",
+        true,
+      );
     };
 
     const onConnect = () => {
@@ -205,13 +236,11 @@ async function startSocketClassroom({ role, roomCode }) {
         } catch {
           // ignore disconnect issues
         }
-        cleanupActiveClassroomConnection();
-        localStorage.removeItem("delta-active-room");
-        localStorage.setItem(
-          "delta-dashboard-notice",
+        sendStudentBackToDashboard(
+          role,
           message || "Class session is not started yet. Please wait for the teacher to enter the classroom.",
+          false,
         );
-        navigate(`/dashboard?role=${role}`);
       }
     };
 
@@ -228,6 +257,57 @@ async function startSocketClassroom({ role, roomCode }) {
     socket.on("connect", onConnect);
     socket.on("connect_error", onError);
     socket.on("room-error", onRoomError);
+  });
+}
+
+async function startRoomSocketOnly({ role, roomCode }) {
+  const { io } = await loadSocketClientModule();
+  const socket = io({
+    path: "/socket.io",
+    transports: ["websocket", "polling"],
+    auth: {
+      role,
+      roomCode,
+      token: getToken(),
+      displayName: localStorage.getItem("delta-user-display") || "",
+    },
+    query: { role, roomCode, token: getToken() },
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 500,
+    reconnectionDelayMax: 4000,
+    timeout: 20000,
+  });
+
+  return await new Promise((resolve, reject) => {
+    const cleanup = () => {
+      socket.off("connect", onConnect);
+      socket.off("connect_error", onError);
+    };
+
+    const onConnect = () => {
+      cleanup();
+      resolve({ socket });
+    };
+
+    const onError = (error) => {
+      cleanup();
+      try {
+        socket.disconnect();
+      } catch {
+        // ignore
+      }
+      reject(error || new Error("Socket connection failed"));
+    };
+
+    socket.on("connect", onConnect);
+    socket.on("connect_error", onError);
+    socket.on("room-error", (payload = {}) => {
+      const message = String(payload?.message || "");
+      if (/deleted|has been deleted|room does not exist/i.test(message)) {
+        sendStudentBackToDashboard(role, CLASS_ENDED_NOTICE, role === "student");
+      }
+    });
   });
 }
 
@@ -272,17 +352,16 @@ async function handleExitFromClassroom({ role, roomCode, isTeacher }, exitAction
     );
     if (!confirmEnd) return false;
 
-    cleanupActiveClassroomConnection();
-    localStorage.removeItem("delta-active-room");
-    removeSavedRoom(roomCode);
-    navigate("/dashboard?role=teacher");
-
     try {
       await api(`/classrooms/${encodeURIComponent(roomCode)}`, { method: "DELETE" });
     } catch (error) {
       window.alert(error?.message || "Failed to end class.");
       return false;
     }
+    cleanupActiveClassroomConnection();
+    localStorage.removeItem("delta-active-room");
+    removeSavedRoom(roomCode);
+    navigate("/dashboard?role=teacher");
     return true;
   } else if (exitAction?.action === "take_break") {
     cleanupActiveClassroomConnection();
@@ -445,6 +524,21 @@ async function renderRoute() {
     const roomRole = params.get("role") === "teacher" ? "teacher" : "student";
     
     if (roomCode) {
+      if (roomRole === "student") {
+        try {
+          const entry = await ensureStudentCanEnterClassroom(roomCode);
+          if (!entry.ok) {
+            localStorage.setItem("delta-dashboard-notice", entry.message);
+            navigate(`/dashboard?role=student`);
+            return;
+          }
+        } catch (error) {
+          localStorage.setItem("delta-dashboard-notice", error?.message || "Could not enter classroom.");
+          navigate(`/dashboard?role=student`);
+          return;
+        }
+      }
+
       const [
         { renderClassroomPage },
         { createRuntimeSession },
@@ -556,21 +650,28 @@ async function renderRoute() {
             (list || []).forEach(entry => {
               const userId = typeof entry === 'string' ? entry : entry.userId;
               const displayName = (entry && entry.displayName) ? entry.displayName : userId;
+              const isMuted = entry?.muted !== false;
               const li = document.createElement("li");
               li.className = "dc-raise-hand-item";
               li.dataset.userId = userId;
+              li.dataset.muted = isMuted ? "true" : "false";
               li.innerHTML = `
                 <span class="dc-raise-hand-user">${escapeHtml(displayName)}</span>
                 <div class="dc-raise-hand-actions">
-                  <button type="button" class="dc-btn dc-btn-small dc-unmute-btn">Unmute</button>
+                  <button type="button" class="dc-btn dc-btn-small dc-unmute-btn">${isMuted ? "Unmute" : "Mute"}</button>
                   <button type="button" class="dc-btn dc-btn-ghost dc-clear-btn">Clear</button>
                 </div>
               `;
               const unmuteBtn = li.querySelector('.dc-unmute-btn');
               const clearBtn = li.querySelector('.dc-clear-btn');
               unmuteBtn.addEventListener('click', () => {
-                socket.emit('teacher-set-audio-state', { target: userId, muted: false });
-                socket.emit('clear-raise-hand', { userId });
+                const nextMuted = li.dataset.muted !== "true";
+                li.dataset.muted = nextMuted ? "true" : "false";
+                unmuteBtn.textContent = nextMuted ? "Unmute" : "Mute";
+                socket.emit('teacher-set-audio-state', { target: userId, muted: nextMuted });
+                if (!nextMuted) {
+                  socket.emit('clear-raise-hand', { userId });
+                }
                 try {
                   if (activeVoiceSystem && typeof activeVoiceSystem.enableRemoteAudioWithGesture === 'function') {
                     activeVoiceSystem.enableRemoteAudioWithGesture();
@@ -594,8 +695,9 @@ async function renderRoute() {
             const existing = page.raiseHandList.querySelector(`[data-user-id="${userId}"]`);
             if (!existing) {
               const current = page.raiseHandList ? Array.from(page.raiseHandList.querySelectorAll('li')).map(li=>({ userId: li.dataset.userId, displayName: li.querySelector('.dc-raise-hand-user')?.textContent || li.dataset.userId })) : [];
-              renderRaiseHands([...current, { userId, displayName }]);
+              renderRaiseHands([...current, { userId, displayName, muted: true }]);
             }
+            page.setStatus(`${displayName || "Student"} requested microphone access.`, "Mic request", true);
           });
 
           socket.emit('request-raise-hand-list');
@@ -772,6 +874,15 @@ async function renderRoute() {
     }
 
     const { mountRoomToolPage } = await import("./features/dashboard/groupDiscussionPage.js");
+    if (!window.activeClassroomSocket && getToken()) {
+      try {
+        const { socket } = await startRoomSocketOnly({ role: routeRole, roomCode });
+        activeClassroomSocket = socket;
+        window.activeClassroomSocket = socket;
+      } catch (error) {
+        console.warn("Discussion live socket unavailable; using saved discussion API.", error);
+      }
+    }
     mountRoomToolPage(appRoot, {
       role: routeRole,
       roomCode,
@@ -830,6 +941,22 @@ async function renderRoute() {
     onCreateRequested: () => navigate("/create?role=teacher"),
     onJoinRequested: () => navigate(`/join?role=student`),
     onRoomSelected: ({ roomCode, role: classroomRole }) => {
+      if (classroomRole === "student") {
+        ensureStudentCanEnterClassroom(roomCode)
+          .then((entry) => {
+            if (!entry.ok) {
+              localStorage.setItem("delta-dashboard-notice", entry.message);
+              navigate("/dashboard?role=student");
+              return;
+            }
+            navigate(`/classroom?role=student&code=${encodeURIComponent(roomCode)}`);
+          })
+          .catch((error) => {
+            localStorage.setItem("delta-dashboard-notice", error?.message || "Could not enter classroom.");
+            navigate("/dashboard?role=student");
+          });
+        return;
+      }
       navigate(`/classroom?role=${classroomRole}&code=${encodeURIComponent(roomCode)}`);
     },
     onResolveRooms: resolveExistingRooms,

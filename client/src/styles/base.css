@@ -446,6 +446,19 @@ body {
   gap: 10px;
   box-shadow: var(--dc-shadow);
   transition: all 0.3s ease;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.dc-raise-hand-panel:hover,
+.dc-raise-hand-panel[data-visible="true"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.dc-room-shell:hover .dc-raise-hand-panel {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .dc-raise-hand-panel[hidden],

@@ -88,6 +88,7 @@ export function mountDashboard(
 
   const dashboardNotice = wrap.querySelector("#dc-dashboard-notice");
   const pendingNotice = localStorage.getItem("delta-dashboard-notice") || "";
+  const modalNotice = localStorage.getItem("delta-dashboard-modal") || "";
   if (dashboardNotice && pendingNotice) {
     dashboardNotice.textContent = pendingNotice;
     dashboardNotice.hidden = false;
@@ -95,6 +96,30 @@ export function mountDashboard(
     window.setTimeout(() => {
       if (dashboardNotice.isConnected) dashboardNotice.hidden = true;
     }, 7000);
+  }
+  if (modalNotice) {
+    localStorage.removeItem("delta-dashboard-modal");
+    const backdrop = document.createElement("div");
+    backdrop.className = "dc-modal-backdrop";
+    backdrop.style.display = "flex";
+    backdrop.innerHTML = `
+      <div class="dc-modal">
+        <h2>Class Ended</h2>
+        <p style="margin: 1rem 0; color: var(--text-secondary);">${modalNotice}</p>
+        <div class="dc-modal-actions">
+          <button type="button" class="dc-btn dc-btn-primary" id="dc-class-ended-back">Go back</button>
+        </div>
+      </div>
+    `;
+    const close = () => {
+      backdrop.remove();
+      window.location.hash = `/dashboard?role=${viewerRole}`;
+    };
+    document.body.appendChild(backdrop);
+    backdrop.querySelector("#dc-class-ended-back")?.addEventListener("click", close);
+    backdrop.addEventListener("click", (event) => {
+      if (event.target === backdrop) close();
+    });
   }
 
   // --- USER MENU LOGIC (Dropdown for Profile/Logout) ---
@@ -215,6 +240,10 @@ export function mountDashboard(
       card.addEventListener("click", (e) => {
         // Prevent trigger if clicking modular components inside the card
         if (e.target.closest(".btn-delete-room") || e.target.closest(".dc-room-participants")) return;
+        if (room.pending) {
+          showDashboardMessage("Waiting for teacher approval. You can enter after the teacher allows you.");
+          return;
+        }
         
         onRoomSelected?.({
           roomCode: room.code,
@@ -224,6 +253,10 @@ export function mountDashboard(
       card.addEventListener("keydown", (e) => {
         if (e.key !== "Enter" && e.key !== " ") return;
         e.preventDefault();
+        if (room.pending) {
+          showDashboardMessage("Waiting for teacher approval. You can enter after the teacher allows you.");
+          return;
+        }
         onRoomSelected?.({
           roomCode: room.code,
           role: host ? "teacher" : "student",
@@ -269,6 +302,16 @@ export function mountDashboard(
         });
       }
     });
+  }
+
+  function showDashboardMessage(message) {
+    if (!dashboardNotice) return;
+    dashboardNotice.textContent = message;
+    dashboardNotice.hidden = false;
+    window.clearTimeout(showDashboardMessage._timer);
+    showDashboardMessage._timer = window.setTimeout(() => {
+      if (dashboardNotice.isConnected) dashboardNotice.hidden = true;
+    }, 7000);
   }
 
   async function syncRooms() {

@@ -88,7 +88,7 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
         <div class="dc-modal-actions dc-room-exit-actions">
           ${role === "teacher" ? `
             <button id="take-break-btn" class="dc-btn dc-btn-secondary">Take a Break</button>
-            <button id="end-call-btn" class="dc-btn dc-btn-primary">End Call</button>
+            <button id="end-call-btn" class="dc-btn dc-btn-primary">End Class</button>
           ` : `
             <button id="cancel-exit-btn" class="dc-btn dc-btn-secondary">Cancel</button>
             <button id="confirm-exit-btn" class="dc-btn dc-btn-primary">Exit</button>
@@ -118,6 +118,26 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
   const pendingRequestsList = wrap.querySelector("#pending-requests-list");
   const pendingRequestsEmpty = wrap.querySelector("#pending-requests-empty");
   const discussionButton = wrap.querySelector("#discussion-button");
+  const handUpIcon = `
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
+      <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
+      <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
+      <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
+      <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
+    </svg>
+  `;
+  const handDownIcon = `
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
+      <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
+      <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
+      <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
+      <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
+      <path d="M20 4v6"></path>
+      <path d="M17 7l3 3 3-3"></path>
+    </svg>
+  `;
   const noticeBanner = document.createElement("div");
   noticeBanner.className = "dc-room-notice";
   noticeBanner.hidden = true;
@@ -171,11 +191,19 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
         await api(`/classrooms/${encodeURIComponent(roomCode)}/pending-requests/${encodeURIComponent(studentId)}/approve`, {
           method: "POST",
         });
+        // Notify the student that they were approved
+        if (window.activeClassroomSocket) {
+          window.activeClassroomSocket.emit("student-join-approved", { studentId });
+        }
         showNotice("Student approved.");
       } else {
         await api(`/classrooms/${encodeURIComponent(roomCode)}/pending-requests/${encodeURIComponent(studentId)}`, {
           method: "DELETE",
         });
+        // Notify the student that they were denied
+        if (window.activeClassroomSocket) {
+          window.activeClassroomSocket.emit("student-join-denied", { studentId });
+        }
         showNotice("Student denied.");
       }
       await loadPendingRequests();
@@ -234,6 +262,7 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
     let isHandRaised = false;
 
     if (raiseHandButton && role === "student") {
+      raiseHandButton.innerHTML = handUpIcon;
       raiseHandButton.addEventListener("click", () => {
         if (window.activeClassroomSocket) {
           if (!isHandRaised) {
@@ -241,6 +270,7 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
             window.activeClassroomSocket.emit("raise-hand", { displayName });
             window.activeClassroomSocket.emit("request-unmute", { displayName });
             isHandRaised = true;
+            raiseHandButton.innerHTML = handDownIcon;
             raiseHandButton.setAttribute("aria-pressed", "true");
             raiseHandButton.setAttribute("data-tooltip", "Lower Hand");
             raiseHandButton.style.color = "#7c3aed";
@@ -250,6 +280,7 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
 
           window.activeClassroomSocket.emit("clear-raise-hand", { userId: window.activeClassroomSocket.id });
           isHandRaised = false;
+          raiseHandButton.innerHTML = handUpIcon;
           raiseHandButton.setAttribute("aria-pressed", "false");
           raiseHandButton.setAttribute("data-tooltip", "Raise Hand");
           raiseHandButton.style.color = "";
@@ -264,19 +295,35 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
       });
     }
 
-    // Mute/Unmute button
-    if (muteButton) {
-      setMuteButtonState(Boolean(voiceSystem.isMuted));
-      muteButton.addEventListener("click", () => {
-        const isMuted = voiceSystem.toggleMute();
-        setMuteButtonState(isMuted);
-        showNotice(isMuted ? "Microphone muted." : "Microphone unmuted.");
-        muteButton.innerHTML = isMuted
-          ? '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>' // mic-off
-          : '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>'; // mic-on
-        setMuteButtonState(isMuted);
+    // Mute/Unmute button is now initialized early above
+    // No need to reinitialize here - the listener is already set
+
+  };
+
+  // Initialize mute button independently (works for both teacher and student)
+  const initializeMuteButton = () => {
+    if (muteButton && !muteButton._muted_initialized) {
+      muteButton._muted_initialized = true;
+      setMuteButtonState(false);
+      muteButton.addEventListener("click", async () => {
+        if (window.activeVoiceSystem) {
+          const isMuted = window.activeVoiceSystem.toggleMute();
+          setMuteButtonState(isMuted);
+          showNotice(isMuted ? "Microphone muted." : "Microphone unmuted.");
+        } else {
+          showNotice("Voice system initializing...");
+          // Keep trying to toggle mute if voice system isn't ready yet
+          setTimeout(() => {
+            if (window.activeVoiceSystem) {
+              const isMuted = window.activeVoiceSystem.toggleMute();
+              setMuteButtonState(isMuted);
+              showNotice(isMuted ? "Microphone muted." : "Microphone unmuted.");
+            }
+          }, 500);
+        }
       });
 
+      // Listen for audio state changes from teacher
       window.activeClassroomSocket?.on("audio-state-change", ({ userId, muted, by }) => {
         if (userId !== window.activeClassroomSocket.id) return;
         const isMuted = Boolean(muted);
@@ -286,8 +333,10 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
         }
       });
     }
-
   };
+
+  // Initialize mute button immediately
+  initializeMuteButton();
 
   // Check for socket availability and initialize voice system
   const checkAndInitializeVoice = () => {
@@ -333,6 +382,9 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
           const nextMuted = !(raiseHandState.get(userId)?.muted ?? isMuted);
           raiseHandState.set(userId, { muted: nextMuted });
           window.activeClassroomSocket.emit("teacher-set-audio-state", { target: userId, muted: nextMuted });
+          if (!nextMuted) {
+            window.activeClassroomSocket.emit("clear-raise-hand", { userId });
+          }
           try {
             if (window.activeVoiceSystem && typeof window.activeVoiceSystem.enableRemoteAudioWithGesture === 'function') {
               window.activeVoiceSystem.enableRemoteAudioWithGesture();
@@ -368,7 +420,10 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
 
       const hasHands = Array.isArray(list) && list.length > 0;
       try {
-        if (raiseHandPanel) raiseHandPanel.hidden = !hasHands;
+        if (raiseHandPanel) {
+          raiseHandPanel.hidden = false;
+          raiseHandPanel.setAttribute("data-visible", hasHands ? "true" : "false");
+        }
       } catch (e) {
         // ignore
       }
@@ -403,8 +458,9 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
         muted: li.dataset.muted === "true",
       }));
       if (!current.some((entry) => entry.userId === userId)) {
-        renderRaiseHands([...current, { userId, displayName }]);
+        renderRaiseHands([...current, { userId, displayName, muted: true }]);
       }
+      showNotice(`${displayName || "Student"} requested microphone access.`);
     });
 
     window.activeClassroomSocket.on("participants-state", ({ participants = [] }) => {
@@ -554,14 +610,6 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
 
       hideModal();
 
-      // navigate back to dashboard immediately so teacher returns to listing
-      try {
-        window.location.hash = `/dashboard?role=teacher`;
-      } catch (e) {
-        window.location.href = "#/dashboard?role=teacher";
-      }
-
-      // still call the onExit handler to perform server-side deletion and cleanup
       onExit?.({ action: "end_call" });
 
     });

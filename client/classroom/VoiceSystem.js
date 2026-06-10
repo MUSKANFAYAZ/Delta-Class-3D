@@ -1,7 +1,7 @@
 export class VoiceSystem {
   constructor(socket, currentUserId, currentRole) {
     this.socket = socket;
-    this.currentUserId = currentUserId;
+    this.currentUserId = currentUserId || socket?.id || null;
     this.currentRole = currentRole; // 'teacher' or 'student'
     this.destroyed = false;
     
@@ -26,6 +26,9 @@ export class VoiceSystem {
     this.handleSocketDisconnect = this.handleSocketDisconnect.bind(this);
     
     this.setupSocketListeners();
+    if (this.socket.connected && this.socket.id) {
+      this.handleSocketConnect();
+    }
     this.requestExistingPeers();
   }
 
@@ -35,6 +38,11 @@ export class VoiceSystem {
       return false;
     }
     return true;
+  }
+
+  shouldInitiatePeer(peerId) {
+    if (!peerId || !this.currentUserId) return true;
+    return String(this.currentUserId) < String(peerId);
   }
 
   upsertVoiceScalingBanner(payload = {}) {
@@ -139,6 +147,52 @@ export class VoiceSystem {
     // Notify server of mute state for better bandwidth management
     this.socket.emit("audio-state-change", { muted: this.isMuted });
     return this.isMuted;
+  }
+
+  async applyTeacherAudioState({ muted, deafened }) {
+    if (muted !== undefined) {
+      this.isMuted = Boolean(muted);
+      if (!this.localStream) {
+        await this.initLocalStream();
+      }
+      if (this.localStream) {
+        this.localStream.getAudioTracks().forEach((track) => {
+          track.enabled = !this.isMuted;
+        });
+      }
+      if (!this.isMuted) {
+        await this.ensureLocalTrackOnPeers();
+      }
+    }
+
+    if (deafened !== undefined) {
+      this.isDeafened = Boolean(deafened);
+      document.querySelectorAll(".dc-remote-audio").forEach((audio) => {
+        audio.muted = this.isDeafened;
+      });
+    }
+  }
+
+  async ensureLocalTrackOnPeers() {
+    const track = this.localStream?.getAudioTracks?.()[0];
+    if (!track) return;
+
+    for (const [peerId, pc] of this.peers.entries()) {
+      try {
+        const hasTrack = pc.getSenders().some((sender) => sender.track === track || sender.track?.kind === "audio");
+        if (!hasTrack) {
+          pc.addTrack(track, this.localStream);
+          if (pc.signalingState === "stable") {
+            const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
+            this.optimizeSdpForLowBandwidth(offer);
+            await pc.setLocalDescription(offer);
+            this.socket.emit("webrtc-offer", { target: peerId, offer });
+          }
+        }
+      } catch (error) {
+        console.warn(`[VoiceSystem] Could not attach local audio to ${peerId}:`, error);
+      }
+    }
   }
 
   ensureUnmuted() {
@@ -257,7 +311,7 @@ export class VoiceSystem {
         const delayMs = Math.random() * 500;
         await new Promise(resolve => setTimeout(resolve, delayMs));
         
-        await this.initPeerConnection(peerId, true);
+        await this.initPeerConnection(peerId, this.shouldInitiatePeer(peerId));
       } catch (err) {
         console.error(`[VoiceSystem] Failed to connect to peer ${peerId}:`, err);
       }
@@ -280,7 +334,7 @@ export class VoiceSystem {
       }
 
       try {
-        await this.initPeerConnection(userId, true);
+        await this.initPeerConnection(userId, this.shouldInitiatePeer(userId));
       } catch (err) {
         console.warn(`[VoiceSystem] Could not connect to joined peer ${userId}:`, err);
       }
@@ -396,38 +450,9 @@ export class VoiceSystem {
       try {
         // If this update is about this client
         if (userId === this.currentUserId) {
-          if (muted !== undefined) {
-            // If teacher just unmuted this student but localStream isn't created,
-            // try to initialize the local microphone so audio can be sent.
-            if (muted === false && !this.localStream) {
-              this.initLocalStream().then(() => {
-                this.isMuted = false;
-                if (this.localStream) {
-                  this.localStream.getAudioTracks().forEach((t) => { t.enabled = true; });
-                  // Attach the new local track to any existing peer connections
-                  const track = this.localStream.getAudioTracks()[0];
-                  if (track) {
-                    for (const [peerId, pc] of this.peers.entries()) {
-                      try { pc.addTrack(track, this.localStream); } catch (e) { /* ignore duplicate/add errors */ }
-                    }
-                  }
-                }
-              }).catch((e) => {
-                console.warn('[VoiceSystem] initLocalStream on unmute failed', e);
-                this.isMuted = true;
-              });
-            } else {
-              this.isMuted = Boolean(muted);
-              if (this.localStream) {
-                this.localStream.getAudioTracks().forEach((t) => { t.enabled = !this.isMuted; });
-              }
-            }
-          }
-          if (deafened !== undefined) {
-            this.isDeafened = Boolean(deafened);
-            // Mute/unmute remote audio elements locally when deafened toggles
-            document.querySelectorAll('.dc-remote-audio').forEach(a => { a.muted = this.isDeafened; });
-          }
+          this.applyTeacherAudioState({ muted, deafened }).catch((error) => {
+            console.warn("[VoiceSystem] Could not apply teacher audio state:", error);
+          });
           return;
         }
 

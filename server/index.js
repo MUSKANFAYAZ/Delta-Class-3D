@@ -679,6 +679,45 @@ app.post("/auth/classrooms/:code/discussion/message", authMiddleware, async (req
   }
 });
 
+app.post("/auth/classrooms/:code/discussion/image", authMiddleware, async (req, res) => {
+  try {
+    const code = normalizeRoomCode(req.params.code);
+    if (!isValidRoomCode(code)) {
+      return res.status(400).json({ ok: false, message: "Invalid room code format" });
+    }
+
+    const dataUrl = String(req.body?.dataUrl || "").trim();
+    if (!dataUrl.startsWith("data:image/")) {
+      return res.status(400).json({ ok: false, message: "Image data is required" });
+    }
+
+    const classroom = await Classroom.findOne({ code });
+    if (!classroom) {
+      return res.status(404).json({ ok: false, message: "Classroom not found" });
+    }
+
+    const item = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      type: "image",
+      name: String(req.body?.name || "image").trim(),
+      dataUrl,
+      displayName: String(req.user?.name || req.user?.displayName || "").trim() || "Unknown",
+      userId: String(req.user?.sub || ""),
+      createdAt: Date.now(),
+    };
+
+    classroom.discussionFeed = Array.isArray(classroom.discussionFeed) ? [...classroom.discussionFeed, item] : [item];
+    if (classroom.discussionFeed.length > 500) classroom.discussionFeed = classroom.discussionFeed.slice(-500);
+    await classroom.save();
+
+    io.to(code).emit("discussion-update", item);
+    return res.json({ ok: true, item });
+  } catch (error) {
+    console.error("[POST /auth/classrooms/:code/discussion/image]", error?.message || error);
+    return res.status(500).json({ ok: false, message: "Error saving image", detail: error?.message });
+  }
+});
+
 app.delete("/auth/classrooms/:code/discussion/message/:messageId", authMiddleware, async (req, res) => {
   try {
     const code = normalizeRoomCode(req.params.code);
