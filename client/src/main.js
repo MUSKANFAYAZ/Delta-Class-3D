@@ -130,7 +130,6 @@ async function ensureStudentCanEnterClassroom(roomCode) {
     method: "POST",
   });
 
-  // --- FIX: Allow pending requests to clear entry logic checks smoothly so they can setup the websocket layer ---
   if (joinResult?.pending) {
     return { ok: true, pending: true, message: joinResult.message };
   }
@@ -216,7 +215,6 @@ async function startSocketClassroom({ role, roomCode }) {
     socket.on("connect_error", onError);
     socket.on("room-error", onRoomError);
     
-    // Auto refresh student tab immediately if approved live by teacher
     socket.on("pending-requests-updated", (data) => {
       if (data && data.approved === socket.id) {
         window.location.reload();
@@ -408,6 +406,11 @@ async function renderRoute() {
     cleanupActiveClassroomConnection();
   }
 
+  // --- PARSE PARAMS SAFELY AT ROOT OF ROUTER EXECUTION ---
+  const role = params.get("role") === "teacher" ? "teacher" : "student";
+  const mode = params.get("mode") === "signup" ? "signup" : params.get("mode") === "login" ? "login" : "";
+  const next = String(params.get("next") || "").trim();
+
   if (path === "/classroom" || path === "/room") {
     const roomCode = params.get("code") || params.get("roomCode") || "";
     const roomRole = params.get("role") === "teacher" ? "teacher" : "student";
@@ -511,7 +514,7 @@ async function renderRoute() {
   }
 
   if (path === "/group-discussion") {
-    const routeRole = params.get("role") === "teacher" ? "teacher" : "student";
+    const routeRole = params.get("code") ? role : "student";
     const roomCode = String(params.get("code") || "").trim().toLowerCase();
     const { mountRoomToolPage } = await import("./features/dashboard/groupDiscussionPage.js");
     
@@ -531,7 +534,7 @@ async function renderRoute() {
   }
 
   if (path === "/notes") {
-    const routeRole = params.get("role") === "teacher" ? "teacher" : "student";
+    const routeRole = params.get("code") ? role : "student";
     const roomCode = String(params.get("code") || "").trim().toLowerCase();
     const { mountNotesPage } = await import("./features/dashboard/notesPage.js");
     mountNotesPage(appRoot, {
