@@ -504,15 +504,22 @@ app.post("/auth/classrooms/:code/join", authMiddleware, async (req, res) => {
       });
     }
 
+    const newRequest = {
+      userId,
+      displayName: String(req.user?.name || req.user?.displayName || req.user?.phone || "").trim(),
+      createdAt: new Date(),
+    };
+
     classroom.pendingJoinRequests = [
       ...pendingRequests,
-      {
-        userId,
-        displayName: String(req.user?.name || req.user?.displayName || req.user?.phone || "").trim(),
-        createdAt: new Date(),
-      },
+      newRequest,
     ];
     await classroom.save();
+
+    io.to(code).emit("pending-requests-updated", {
+      requestCount: classroom.pendingJoinRequests.length,
+      request: newRequest,
+    });
 
     return res.json({
       ok: true,

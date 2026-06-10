@@ -65,6 +65,14 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
         <ul id="raise-hand-list" class="dc-raise-hand-list"></ul>
       </aside>
       ` : ``}
+
+      <div class="dc-classroom-tools">
+        <button id="discussion-button" type="button" class="dc-classroom-tool-btn" title="Open chat">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>
+        </button>
+      </div>
     </div>
 
     <!-- Reload Warning Modal -->
@@ -237,6 +245,32 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
 
   let isHandRaised = false;
 
+  const updateRaiseHandIcon = (raised) => {
+    if (!raiseHandButton) return;
+
+    raiseHandButton.innerHTML = raised
+      ? `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 21v-7"></path>
+          <path d="M15 14V5a3 3 0 0 0-6 0v9"></path>
+          <path d="M12 21c-1.2 0-2.8-0.8-4-2"></path>
+        </svg>
+      `
+      : `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
+          <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
+          <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
+          <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
+          <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
+        </svg>
+      `;
+  };
+
+  if (raiseHandButton) {
+    updateRaiseHandIcon(false);
+  }
+
   const hideModal = () => {
     modalBackdrop.style.display = "none";
   };
@@ -320,10 +354,11 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
     raiseHandButton.addEventListener("click", () => {
       if (window.activeClassroomSocket) {
         if (!isHandRaised) {
-            const displayName = localStorage.getItem("delta-user-display") || "";
-            window.activeClassroomSocket.emit("raise-hand", { displayName });
-            window.activeClassroomSocket.emit("request-unmute", { displayName });
+          const displayName = localStorage.getItem("delta-user-display") || "";
+          window.activeClassroomSocket.emit("raise-hand", { displayName });
+          window.activeClassroomSocket.emit("request-unmute", { displayName });
           isHandRaised = true;
+          updateRaiseHandIcon(true);
           raiseHandButton.setAttribute("aria-pressed", "true");
           raiseHandButton.setAttribute("data-tooltip", "Lower Hand");
           raiseHandButton.style.color = "#7c3aed";
@@ -333,14 +368,15 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
 
         window.activeClassroomSocket.emit("clear-raise-hand", { userId: window.activeClassroomSocket.id });
         isHandRaised = false;
+        updateRaiseHandIcon(false);
         raiseHandButton.setAttribute("aria-pressed", "false");
         raiseHandButton.setAttribute("data-tooltip", "Raise Hand");
         raiseHandButton.style.color = "";
         raiseHandButton.classList.remove("dc-raise-hand-button--active");
-          raiseHandButton.classList.add("dc-raise-hand-button--transitioning");
-          window.setTimeout(() => {
-            raiseHandButton.classList.remove("dc-raise-hand-button--transitioning");
-          }, 1000);
+        raiseHandButton.classList.add("dc-raise-hand-button--transitioning");
+        window.setTimeout(() => {
+          raiseHandButton.classList.remove("dc-raise-hand-button--transitioning");
+        }, 1000);
       }
     });
   }

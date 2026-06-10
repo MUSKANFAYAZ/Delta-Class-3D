@@ -73,7 +73,14 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
 
     </main>
 
-    
+    <div class="dc-classroom-tools">
+      <button id="discussion-button" type="button" class="dc-classroom-tool-btn" title="Open chat">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+        </svg>
+      </button>
+    </div>
+
     <div id="exit-modal-backdrop" class="dc-modal-backdrop dc-room-exit-backdrop" style="display: none;">
       <div class="dc-modal dc-exit-modal dc-room-exit-modal">
         <h3 class="dc-room-exit-title">Exit Confirmation</h3>
@@ -110,11 +117,73 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
   const pendingRequestsPanel = wrap.querySelector("#pending-requests-panel");
   const pendingRequestsList = wrap.querySelector("#pending-requests-list");
   const pendingRequestsEmpty = wrap.querySelector("#pending-requests-empty");
+  const discussionButton = wrap.querySelector("#discussion-button");
   const noticeBanner = document.createElement("div");
   noticeBanner.className = "dc-room-notice";
   noticeBanner.hidden = true;
   wrap.appendChild(noticeBanner);
   let raiseHandListenersBound = false;
+
+  const loadPendingRequests = async () => {
+    if (!pendingRequestsList || !pendingRequestsPanel || !roomCode || role !== "teacher") {
+      return;
+    }
+
+    try {
+      const response = await api(`/classrooms/${encodeURIComponent(roomCode)}/pending-requests`);
+      const pendingRequests = Array.isArray(response?.pendingRequests) ? response.pendingRequests : [];
+      pendingRequestsList.innerHTML = pendingRequests.length
+        ? pendingRequests.map((entry) => `
+            <li class="dc-pending-request-item" data-user-id="${String(entry.userId || "").trim()}">
+              <span class="dc-pending-request-user">${String(entry.displayName || entry.userId || "Unknown").trim()}</span>
+              <div class="dc-pending-request-actions">
+                <button type="button" class="dc-btn dc-btn-primary dc-pending-approve-btn">Allow</button>
+                <button type="button" class="dc-btn dc-btn-ghost dc-pending-deny-btn">Deny</button>
+              </div>
+            </li>`)
+          .join("")
+        : "";
+      pendingRequestsEmpty.style.display = pendingRequests.length ? "none" : "block";
+      pendingRequestsPanel.style.display = pendingRequests.length ? "grid" : "none";
+
+      if (pendingRequests.length) {
+        showNotice(`New join request${pendingRequests.length > 1 ? "s" : ""}.`);
+      }
+    } catch (error) {
+      console.error("Failed to load pending requests:", error);
+    }
+  };
+
+  const handlePendingRequestAction = async (event) => {
+    const target = event.target;
+    if (!target) return;
+    const listItem = target.closest(".dc-pending-request-item");
+    if (!listItem || !roomCode) return;
+    const studentId = String(listItem.dataset.userId || "").trim();
+    if (!studentId) return;
+
+    const isApprove = target.classList.contains("dc-pending-approve-btn");
+    const isDeny = target.classList.contains("dc-pending-deny-btn");
+    if (!isApprove && !isDeny) return;
+
+    try {
+      if (isApprove) {
+        await api(`/classrooms/${encodeURIComponent(roomCode)}/pending-requests/${encodeURIComponent(studentId)}/approve`, {
+          method: "POST",
+        });
+        showNotice("Student approved.");
+      } else {
+        await api(`/classrooms/${encodeURIComponent(roomCode)}/pending-requests/${encodeURIComponent(studentId)}`, {
+          method: "DELETE",
+        });
+        showNotice("Student denied.");
+      }
+      await loadPendingRequests();
+    } catch (error) {
+      console.error("Failed to process pending request:", error);
+      showNotice("Unable to complete request.");
+    }
+  };
 
   const setMuteButtonState = (isMuted) => {
     if (!muteButton) return;
@@ -297,16 +366,18 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
         raiseHandList.appendChild(li);
       });
 
-      // show panel only when list has entries, otherwise hide it
+      const hasHands = Array.isArray(list) && list.length > 0;
       try {
-        if (raiseHandPanel) raiseHandPanel.hidden = !(list && list.length);
+        if (raiseHandPanel) raiseHandPanel.hidden = !hasHands;
       } catch (e) {
         // ignore
       }
 
-      // show/hide left-side tab depending on presence of hands
       try {
-        if (raiseHandTab) raiseHandTab.hidden = Boolean(list && list.length);
+        if (raiseHandTab) {
+          raiseHandTab.hidden = !hasHands;
+          raiseHandTab.classList.toggle("dc-raise-hand-tab--active", hasHands);
+        }
       } catch (e) {
         // ignore
       }
@@ -355,6 +426,17 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
   if (role === "teacher" && pendingRequestsList) {
     pendingRequestsList.addEventListener("click", handlePendingRequestAction);
   }
+
+  if (discussionButton) {
+    discussionButton.addEventListener("click", () => {
+      const chatChannel = document.querySelector("#chat-window") || document.querySelector("#discussion-panel");
+      if (chatChannel) {
+        chatChannel.classList.toggle("dc-chat-open", true);
+        chatChannel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    });
+  }
+
   // create right-side collapsed tab to show raised hands on hover
   if (role === "teacher") {
     raiseHandTab = document.createElement("button");
