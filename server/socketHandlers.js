@@ -71,8 +71,6 @@ module.exports = function attachSocketHandlers(io, deps) {
     }
 
     try {
-      // Fetch classroom from MongoDB. If Mongo is temporarily unavailable,
-      // keep live room sync working from in-memory state.
       let classroom = null;
       try {
         classroom = await Classroom.findOne({ code: roomCode });
@@ -87,7 +85,6 @@ module.exports = function attachSocketHandlers(io, deps) {
         return;
       }
 
-      // Get or create an in-memory cache for this session
       if (!activeClassrooms.has(roomCode)) {
         activeClassrooms.set(roomCode, createActiveSessionFromClassroom(classroom));
       }
@@ -113,6 +110,9 @@ module.exports = function attachSocketHandlers(io, deps) {
           ? classroom.approvedStudentIds.map((entry) => String(entry).trim())
           : [];
         if (!approvedIds.includes(userId)) {
+          // --- FIX: Tell the teacher room to pull down the newly saved database entry immediately ---
+          io.to(roomCode).emit("pending-requests-updated");
+
           socket.emit("room-error", { message: "You are not approved to join this class yet. Please wait until the teacher approves your request." });
           socket.disconnect(true);
           return;
@@ -123,7 +123,6 @@ module.exports = function attachSocketHandlers(io, deps) {
       socket.data.userId = userId;
       socket.join(roomCode);
 
-      // Record display name if provided by client
       const displayName = String(socket.handshake.auth?.displayName || "").trim();
       if (displayName) {
         if (!activeSession.userDisplayNames) activeSession.userDisplayNames = new Map();
@@ -165,7 +164,6 @@ module.exports = function attachSocketHandlers(io, deps) {
 
       broadcastSnapshot(socket, activeSession);
 
-      // Send whiteboard snapshot to newly connected user.
       if (activeSession.blackboardStrokes.length > 0) {
         socket.emit("blackboard-snapshot", { strokes: activeSession.blackboardStrokes });
       }
@@ -185,7 +183,6 @@ module.exports = function attachSocketHandlers(io, deps) {
           z: nextZ,
         });
 
-        // Compatibility event expected by older client builds.
         io.to(roomCode).emit("update", { id: socket.id, x: nextX, z: nextZ });
       });
 
@@ -422,8 +419,6 @@ module.exports = function attachSocketHandlers(io, deps) {
         emitVoiceScalingState(roomCode);
       });
 
-
-      // Voice Chat / WebRTC Signaling with improved multi-user support
       if (!activeSession.userAudioStates) {
         activeSession.userAudioStates = new Map();
       }
@@ -534,7 +529,6 @@ module.exports = function attachSocketHandlers(io, deps) {
         }
       });
 
-      // Allow clients to request a fresh blackboard snapshot (useful after reconnects)
       socket.on("request-blackboard", () => {
         try {
           socket.emit("blackboard-snapshot", { strokes: activeSession.blackboardStrokes });
@@ -547,7 +541,6 @@ module.exports = function attachSocketHandlers(io, deps) {
         try {
           const senderIsTeacher = activeSession.teacherSocketIds.has(socket.id);
           const senderIsStudent = role === "student";
-          // Teacher can clear any student, student can only clear their own
           if (senderIsTeacher) {
             if (userId) activeSession.raiseHands.delete(userId);
           } else if (senderIsStudent && userId === socket.id) {
@@ -575,7 +568,6 @@ module.exports = function attachSocketHandlers(io, deps) {
       socket.on("request-unmute", (payload = {}) => {
         try {
           const requester = socket.id;
-          // If the client supplied a displayName, store it for nicer UI
           if (payload && typeof payload.displayName === "string" && payload.displayName.trim()) {
             if (!activeSession.userDisplayNames) activeSession.userDisplayNames = new Map();
             activeSession.userDisplayNames.set(requester, String(payload.displayName).trim());

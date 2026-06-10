@@ -27,12 +27,18 @@ export function startClassroom(socket, role, options = {}) {
     teacher,
   });
 
+  // Placeholder proxy function triggered on incoming socket updates
+  let wakeCameraSystem = () => {};
+
   attachClassroomSocketSync({
     socket,
     assignStudentToUser: movement.assignStudentToUser,
     moveAssignedStudent: movement.moveAssignedStudent,
     moveTeacherByDirection: movement.moveTeacherByDirection,
     teacher,
+    onNetworkActivity: () => {
+      wakeCameraSystem();
+    }
   });
 
   let controlsAttached = false;
@@ -67,6 +73,7 @@ export function startClassroom(socket, role, options = {}) {
           x: teacher.position.x,
           z: teacher.position.z,
         });
+        wakeCameraSystem(); // Ensure local moves render immediately
       });
     }
   };
@@ -91,7 +98,7 @@ export function startClassroom(socket, role, options = {}) {
     console.error("Failed to initialize Image Sync module:", error);
   });
 
-  // Defer heavier interaction modules so first classroom render appears faster on slow networks.
+  // Defer heavier interaction modules
   Promise.all([
     import("../classroom/CameraSystem.js"),
     import("../classroom/Blackboard.js"),
@@ -106,28 +113,43 @@ export function startClassroom(socket, role, options = {}) {
       strictLowBandwidth,
     });
 
+    // Wakes up loop when browser tab becomes active again
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        cameraSystem.start();
+        cameraSystem.requestRenderOnce();
+      }
+    });
+
     const onBlackboardDrawStart = () => {
       cameraSystem.setBlackboardView(true);
       cameraSystem.requestRenderOnce();
     };
     window.addEventListener("dc-blackboard-draw-start", onBlackboardDrawStart);
 
-    // Render an initial frame immediately so UI doesn't appear blank
     cameraSystem.requestRenderOnce();
 
-    // On constrained networks, avoid continuous rendering. Start rendering on user interaction for a short burst.
+    let interactionTimer = null;
+    const startForShort = () => {
+      cameraSystem.start();
+      clearTimeout(interactionTimer);
+      interactionTimer = setTimeout(() => {
+        cameraSystem.stop();
+      }, 4000);
+    };
+
+    // Bind wakeCameraSystem implementation
+    wakeCameraSystem = () => {
+      if (!lowBandwidth) {
+        cameraSystem.start();
+      } else {
+        startForShort();
+      }
+    };
+
     if (!lowBandwidth) {
       cameraSystem.start();
     } else {
-      let interactionTimer = null;
-      const startForShort = () => {
-        cameraSystem.start();
-        clearTimeout(interactionTimer);
-        interactionTimer = setTimeout(() => {
-          cameraSystem.stop();
-        }, 4000);
-      };
-
       const interactionEvents = ["pointermove", "click", "wheel", "keydown"];
       interactionEvents.forEach((ev) => {
         container.addEventListener(ev, startForShort, { passive: true });
