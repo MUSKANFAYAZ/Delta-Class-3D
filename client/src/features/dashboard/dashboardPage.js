@@ -122,7 +122,7 @@ export function mountDashboard(
     });
   }
 
-  // --- USER MENU LOGIC (Dropdown for Profile/Logout) ---
+  // --- USER MENU LOGIC ---
   const loginBtn = wrap.querySelector("#dc-login");
   loginBtn.addEventListener("click", (e) => {
     if (!isLoggedIn) {
@@ -130,7 +130,6 @@ export function mountDashboard(
       return;
     }
 
-    // Toggle Dropdown
     const existingMenu = wrap.querySelector(".dc-user-menu");
     if (existingMenu) {
       existingMenu.remove();
@@ -148,7 +147,6 @@ export function mountDashboard(
 
     loginBtn.parentElement.appendChild(menu);
 
-    // Profile Action
     menu.querySelector("#dc-menu-profile").onclick = () => {
       const role = localStorage.getItem("delta-user-role") || "student";
       window.location.hash = `/profile?role=${role}`;
@@ -156,7 +154,6 @@ export function mountDashboard(
       menu.remove();
     };
 
-    // Logout Action
     menu.querySelector("#dc-menu-logout").onclick = () => {
       localStorage.removeItem("delta-access-token");
       localStorage.removeItem("delta-access-token-ts");
@@ -167,7 +164,6 @@ export function mountDashboard(
       loginBtn.setAttribute("aria-expanded", "false");
     };
 
-    // Close menu when clicking outside
     const closeHandler = (event) => {
       if (!menu.contains(event.target) && event.target !== loginBtn) {
         menu.remove();
@@ -215,8 +211,10 @@ export function mountDashboard(
           (room.timing ? "<div><strong>Time:</strong> " + room.timing + "</div>" : "") +
           "</div>";
       }
+      
+      // Update badge label styles to clearly prompt action
       const pendingBadge = room.pending
-        ? '<div class="dc-room-card-status dc-room-card-status--pending">Pending approval</div>'
+        ? `<div class="dc-room-card-status dc-room-card-status--pending" style="background: #fef3c7; color: #d97706; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 600;">Click to Request Entry</div>`
         : "";
 
       card.innerHTML = `
@@ -237,12 +235,12 @@ export function mountDashboard(
           <p class="dc-room-meta">Saved: ${formatDate(room.at)}</p>
         `;
 
+      // --- FIX: Allow pending students to route through onRoomSelected to open connection handshake ---
       card.addEventListener("click", (e) => {
-        // Prevent trigger if clicking modular components inside the card
         if (e.target.closest(".btn-delete-room") || e.target.closest(".dc-room-participants")) return;
+        
         if (room.pending) {
-          showDashboardMessage("Waiting for teacher approval. You can enter after the teacher allows you.");
-          return;
+          showDashboardMessage("Sending entry request to teacher... Please wait for approval.");
         }
         
         onRoomSelected?.({
@@ -250,13 +248,15 @@ export function mountDashboard(
           role: host ? "teacher" : "student",
         });
       });
+
       card.addEventListener("keydown", (e) => {
         if (e.key !== "Enter" && e.key !== " ") return;
         e.preventDefault();
+        
         if (room.pending) {
-          showDashboardMessage("Waiting for teacher approval. You can enter after the teacher allows you.");
-          return;
+          showDashboardMessage("Sending entry request to teacher... Please wait for approval.");
         }
+
         onRoomSelected?.({
           roomCode: room.code,
           role: host ? "teacher" : "student",
@@ -265,7 +265,6 @@ export function mountDashboard(
 
       cards.appendChild(card);
 
-      // attach quick tool buttons (Discussion / Notes) below card content
       const toolWrap = document.createElement('div');
       toolWrap.style.display = 'flex';
       toolWrap.style.gap = '8px';
@@ -287,7 +286,6 @@ export function mountDashboard(
         window.location.hash = `/notes?role=${viewerRole}&code=${encodeURIComponent(room.code)}`;
       });
 
-      // Show delete button only for the original creator.
       if (canDelete) {
         mountDeleteButton(card, {
           roomCode: room.code,
@@ -329,9 +327,6 @@ export function mountDashboard(
     }
   }
 
-  /**
-   * Fetches room data and initiates card rendering.
-   */
   async function initializeCards() {
     const noCards = wrap.querySelector("#dc-no-cards");
     noCards.hidden = false;
@@ -394,7 +389,6 @@ export function mountDashboard(
   });
   wrap.querySelector("#dc-join").addEventListener("click", () => onJoinRequested?.());
 
-  // Motivation Quote Animation
   const quoteEl = wrap.querySelector("#dc-hero-quote");
   if (quoteEl) {
     let quoteIndex = Math.floor(Math.random() * motivationQuotes.length);
