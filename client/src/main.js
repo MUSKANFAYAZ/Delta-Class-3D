@@ -136,7 +136,6 @@ async function ensureStudentCanEnterClassroom(roomCode) {
     method: "POST",
   });
 
-  // --- FIX: Allow pending connections to resolve entry logic so they can mount the socket connection stream ---
   if (joinResult?.pending) {
     return { ok: true, pending: true, message: joinResult.message };
   }
@@ -237,7 +236,6 @@ async function startSocketClassroom({ role, roomCode }) {
     socket.on("connect_error", onError);
     socket.on("room-error", onRoomError);
     
-    // Auto reload student tab immediately when teacher hits "Allow"
     socket.on("pending-requests-updated", (data) => {
       if (data && data.approved === socket.id) {
         window.location.reload();
@@ -486,38 +484,21 @@ async function renderRoute() {
   const mode = params.get("mode") === "signup" ? "signup" : params.get("mode") === "login" ? "login" : "";
   const next = String(params.get("next") || "").trim();
 
-  if (path === "/classroom" || path === "/room") {
-    const roomCode = params.get("code") || params.get("roomCode") || "";
+  if (path === "/classroom") {
+    const roomCode = params.get("code") || "";
     const roomRole = params.get("role") === "teacher" ? "teacher" : "student";
     
     if (roomCode) {
+      let isPendingStudent = false;
+
       if (roomRole === "student") {
         try {
           const entry = await ensureStudentCanEnterClassroom(roomCode);
           
-          // --- FIX: If request is pending, allow it to render a temporary layout status context instead of blocking route parsing ---
           if (entry.pending) {
-            const [
-              { mountRoomPage }
-            ] = await Promise.all([
-              import("./features/dashboard/roomPage.js"),
-            ]);
-
-            let roomPageInstance = mountRoomPage(appRoot, {
-              roomCode,
-              role: roomRole,
-              api,
-              onExit: () => navigate(`/dashboard?role=${roomRole}`)
-            });
-
-            // Spin up the WebSocket waiting loop so it signals the teacher room cleanly!
-            const { socket } = await startSocketClassroom({ roomCode, role: roomRole });
-            activeClassroomSocket = socket;
-            window.activeClassroomSocket = socket;
-            return;
-          }
-          
-          if (!entry.ok) {
+            // Student is unapproved, flag it but continue to load the panel layout!
+            isPendingStudent = true;
+          } else if (!entry.ok) {
             localStorage.setItem("delta-dashboard-notice", entry.message);
             navigate(`/dashboard?role=student`);
             return;
@@ -529,6 +510,7 @@ async function renderRoute() {
         }
       }
 
+      // Render the default "Load 3D Classroom" panel interface
       const [
         { renderClassroomPage },
         { createRuntimeSession },
@@ -691,14 +673,28 @@ async function renderRoute() {
         }
       };
 
+      // Handle normal approved student loading
       page.loadButton.addEventListener("click", () => {
+        if (isPendingStudent) {
+          page.setStatus("Your request is pending teacher approval. Please stay on this screen.", "Pending");
+          return;
+        }
         classroomLoader.handleLoadClick();
         checkAndInitVoice();
         initRaiseHandWiring();
       });
-      page.loadButton.addEventListener("mouseenter", () => classroomLoader.warmup().catch(() => {}), { once: true });
-      page.setStatus("Ready to load the classroom.", "Idle");
       
+      page.loadButton.addEventListener("mouseenter", () => {
+        if (!isPendingStudent) classroomLoader.warmup().catch(() => {});
+      }, { once: true });
+      
+      if (isPendingStudent) {
+        page.setStatus("Your request is pending teacher approval. Please stay on this screen.", "Pending");
+      } else {
+        page.setStatus("Ready to load the classroom.", "Idle");
+      }
+      
+      // Open background socket connection safely to signal the teacher
       try {
         const { socket } = await startSocketClassroom({ roomCode, role: roomRole });
         activeClassroomSocket = socket;
@@ -715,7 +711,13 @@ async function renderRoute() {
     const { mountLogin } = await import("./features/auth/login.js");
     mountLogin(appRoot, {
       api, role, mode,
-      onDone: () => navigate(`/dashboard?role=${role}`),
+      onDone: () => {
+        if (next.startsWith("/")) {
+          navigate(next);
+          return;
+        }
+        navigate(`/dashboard?role=${role}`);
+      },
       onGoRegister: (nextRole = role) => navigate(`/register?role=${nextRole}&mode=signup`),
       onChoose: ({ nextMode, nextRole }) => {
         if (nextMode === "signup") navigate(`/register?role=${nextRole}&mode=signup`);
@@ -772,20 +774,49 @@ async function renderRoute() {
     return;
   }
 
-  if (path === "/group-discussion") {
-    const routeRole = params.get("code") ? role : "student";
+  if (path === "/room") {
+    // REST API fallback page launcher routing option
+    const { mountRoomPage } = await import("./features/dashboard/roomPage.js");
     const roomCode = String(params.get("code") || "").trim().toLowerCase();
+    const roomRole = params.get("role") === "teacher" ? "teacher" : "student";
+
+    if (!roomCode) {
+      navigate(`/join?role=${roomRole}`);
+      return;
+    }
+
+    mountRoomPage(appRoot, {
+      roomCode,
+      role: roomRole,
+      api,
+      onExit: () => navigate(`/dashboard?role=${roomRole}`)
+    });
+    return;
+  }
+
+  if (path === "/group-discussion") {
+    const routeRole = params.get("role") === "teacher" ? "teacher" : "student";
+    const roomCode = String(params.get("code") || "").trim().toLowerCase();
+
+    if (!roomCode) {
+      navigate(`/dashboard?role=${routeRole}`);
+      return;
+    }
+
     const { mountRoomToolPage } = await import("./features/dashboard/groupDiscussionPage.js");
-    
     if (!window.activeClassroomSocket && getToken()) {
       try {
         const { socket } = await startRoomSocketOnly({ role: routeRole, roomCode });
         activeClassroomSocket = socket;
         window.activeClassroomSocket = socket;
-      } catch {}
+      } catch (error) {
+        console.warn("Discussion live socket unavailable.", error);
+      }
     }
     mountRoomToolPage(appRoot, {
-      role: routeRole, roomCode, api,
+      role: routeRole,
+      roomCode,
+      api,
       onBack: () => navigate(`/classroom?role=${routeRole}&code=${encodeURIComponent(roomCode)}`),
       onDashboard: () => navigate(`/dashboard?role=${routeRole}`),
     });
@@ -793,13 +824,41 @@ async function renderRoute() {
   }
 
   if (path === "/notes") {
-    const routeRole = params.get("code") ? role : "student";
+    const routeRole = params.get("role") === "teacher" ? "teacher" : "student";
     const roomCode = String(params.get("code") || "").trim().toLowerCase();
+
+    if (!roomCode) {
+      navigate(`/dashboard?role=${routeRole}`);
+      return;
+    }
+
     const { mountNotesPage } = await import("./features/dashboard/notesPage.js");
     mountNotesPage(appRoot, {
-      role: routeRole, roomCode,
+      role: routeRole,
+      roomCode,
       onBack: () => navigate(`/classroom?role=${routeRole}&code=${encodeURIComponent(roomCode)}`),
       onDashboard: () => navigate(`/dashboard?role=${routeRole}`),
+    });
+    return;
+  }
+
+  if (path === "/profile") {
+    const { mountProfilePage } = await import("./features/profile/profilePage.js");
+    const currentRole = params.get("role") === "teacher" ? "teacher" : "student";
+
+    mountProfilePage(appRoot, {
+      api,
+      role: currentRole,
+      onBack: () => navigate(`/dashboard?role=${currentRole}`),
+      onCreateRequested: () => navigate("/create?role=teacher"),
+      onJoinRequested: () => navigate(`/join?role=${currentRole}`),
+      onLogout: () => {
+        localStorage.removeItem("delta-access-token");
+        localStorage.removeItem("delta-user-display");
+        localStorage.removeItem("delta-user-role");
+        localStorage.removeItem("delta-active-room");
+        navigate(`/login?role=${currentRole}&mode=login`);
+      },
     });
     return;
   }
