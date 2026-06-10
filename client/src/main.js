@@ -406,7 +406,6 @@ async function renderRoute() {
     cleanupActiveClassroomConnection();
   }
 
-  // --- PARSE PARAMS SAFELY AT ROOT OF ROUTER EXECUTION ---
   const role = params.get("role") === "teacher" ? "teacher" : "student";
   const mode = params.get("mode") === "signup" ? "signup" : params.get("mode") === "login" ? "login" : "";
   const next = String(params.get("next") || "").trim();
@@ -417,12 +416,12 @@ async function renderRoute() {
     
     if (roomCode) {
       const [
-        { renderRoomPage },
+        { mountRoomPage }, // FIXED: Target mountRoomPage named export securely from your file component layout
       ] = await Promise.all([
         import("./features/dashboard/roomPage.js"),
       ]);
 
-      let roomPageInstance = renderRoomPage(appRoot, {
+      let roomPageInstance = mountRoomPage(appRoot, {
         roomCode,
         role: roomRole,
         api,
