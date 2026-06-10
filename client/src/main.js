@@ -136,6 +136,7 @@ async function ensureStudentCanEnterClassroom(roomCode) {
     method: "POST",
   });
 
+  // Keep tracking if the student is pending, but let them go to the page layout structure natively
   if (joinResult?.pending) {
     return { ok: true, pending: true, message: joinResult.message };
   }
@@ -235,12 +236,6 @@ async function startSocketClassroom({ role, roomCode }) {
     socket.on("connect", onConnect);
     socket.on("connect_error", onError);
     socket.on("room-error", onRoomError);
-    
-    socket.on("pending-requests-updated", (data) => {
-      if (data && data.approved === socket.id) {
-        window.location.reload();
-      }
-    });
   });
 }
 
@@ -490,14 +485,15 @@ async function renderRoute() {
     
     if (roomCode) {
       let isPendingStudent = false;
+      let pendingMessage = "";
 
       if (roomRole === "student") {
         try {
           const entry = await ensureStudentCanEnterClassroom(roomCode);
           
           if (entry.pending) {
-            // Student is unapproved, flag it but continue to load the panel layout!
             isPendingStudent = true;
+            pendingMessage = entry.message || "Join request sent. Wait for teacher approval.";
           } else if (!entry.ok) {
             localStorage.setItem("delta-dashboard-notice", entry.message);
             navigate(`/dashboard?role=student`);
@@ -510,7 +506,7 @@ async function renderRoute() {
         }
       }
 
-      // Render the default "Load 3D Classroom" panel interface
+      // Render your intended interface template layout options cleanly
       const [
         { renderClassroomPage },
         { createRuntimeSession },
@@ -673,12 +669,17 @@ async function renderRoute() {
         }
       };
 
-      // Handle normal approved student loading
-      page.loadButton.addEventListener("click", () => {
+      // --- CRITICAL FIXED IMPLEMENTATION HANDLER BLOCK ---
+      // Intercept click event execution chains safely on the purple button element
+      page.loadButton.addEventListener("click", (e) => {
         if (isPendingStudent) {
-          page.setStatus("Your request is pending teacher approval. Please stay on this screen.", "Pending");
+          // Block 3D boot entirely if they are pending, forcing them to remain on the clean loading layout interface
+          e.stopImmediatePropagation();
+          page.setStatus(pendingMessage, "Pending");
           return;
         }
+        
+        // Approved students continue down the original, optimized 2G/low-bandwidth runtime execution track cleanly
         classroomLoader.handleLoadClick();
         checkAndInitVoice();
         initRaiseHandWiring();
@@ -689,20 +690,35 @@ async function renderRoute() {
       }, { once: true });
       
       if (isPendingStudent) {
-        page.setStatus("Your request is pending teacher approval. Please stay on this screen.", "Pending");
+        page.setStatus(pendingMessage, "Pending");
       } else {
         page.setStatus("Ready to load the classroom.", "Idle");
       }
       
-      // Open background socket connection safely to signal the teacher
-      try {
-        const { socket } = await startSocketClassroom({ roomCode, role: roomRole });
+      // Setup the WebSocket stream to connect to the spectator channel room in the background
+      // This immediately signals the teacher dashboard WITHOUT forcing the 3D modules to load on the student screen
+      const initPendingWebsocketHandshake = async () => {
+        const [{ io }] = await Promise.all([ loadSocketClientModule() ]);
+        const socket = io({
+          path: "/socket.io",
+          transports: ["websocket", "polling"],
+          auth: { role: roomRole, roomCode, token: getToken(), displayName: localStorage.getItem("delta-user-display") || "" },
+          query: { role: roomRole, roomCode, token: getToken() }
+        });
+        
         activeClassroomSocket = socket;
         window.activeClassroomSocket = socket;
         localStorage.setItem("delta-active-room", roomCode);
-      } catch (e) {
-        console.error(e);
-      }
+        
+        // Auto refresh student screen layout natively once approved live by the teacher
+        socket.on("pending-requests-updated", (data) => {
+          if (data && data.approved === socket.id) {
+            window.location.reload();
+          }
+        });
+      };
+      
+      initPendingWebsocketHandshake().catch((err) => console.error(err));
       return;
     }
   }
@@ -775,7 +791,6 @@ async function renderRoute() {
   }
 
   if (path === "/room") {
-    // REST API fallback page launcher routing option
     const { mountRoomPage } = await import("./features/dashboard/roomPage.js");
     const roomCode = String(params.get("code") || "").trim().toLowerCase();
     const roomRole = params.get("role") === "teacher" ? "teacher" : "student";
@@ -810,7 +825,7 @@ async function renderRoute() {
         activeClassroomSocket = socket;
         window.activeClassroomSocket = socket;
       } catch (error) {
-        console.warn("Discussion live socket unavailable.", error);
+        console.warn("Discussion live socket unavailable; using saved discussion API.", error);
       }
     }
     mountRoomToolPage(appRoot, {
