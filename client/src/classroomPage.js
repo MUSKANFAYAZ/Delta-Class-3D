@@ -419,11 +419,10 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
             <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
             <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
             <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
-            <path d="M20 4v6"></path>
-            <path d="M17 7l3 3 3-3"></path>
+            <path d="M12 3v4"></path>
+            <path d="M9 6l3 3 3-3"></path>
           </svg>
         </span>
-        <span class="dc-raise-hand-label">Lower hand</span>
       `
       : `
         <span class="dc-raise-hand-icon">
@@ -435,7 +434,6 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
             <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
           </svg>
         </span>
-        <span class="dc-raise-hand-label">Raise hand</span>
       `;
   };
 
