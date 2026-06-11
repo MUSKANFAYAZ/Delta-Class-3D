@@ -128,6 +128,10 @@ export function mountDashboard(
               }
               badge.textContent = `${count} request${count > 1 ? 's' : ''}`;
               showDashboardMessage(`${count} pending join request${count > 1 ? 's' : ''} for ${roomCode}`);
+              // If the server provided the new request payload, show an approve/deny modal
+              if (data && data.request) {
+                showPendingApprovalModal(roomCode, data.request);
+              }
             } else if (badge) {
               badge.remove();
             }
@@ -180,6 +184,62 @@ export function mountDashboard(
     backdrop.querySelector("#dc-class-ended-back")?.addEventListener("click", close);
     backdrop.addEventListener("click", (event) => {
       if (event.target === backdrop) close();
+    });
+  }
+
+  // Show a modal to approve/deny a single pending join request
+  function showPendingApprovalModal(roomCode, request) {
+    if (!request || !roomCode) return;
+    const existing = document.querySelector('.dc-pending-approval-backdrop');
+    if (existing) return; // avoid duplicate modals
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'dc-modal-backdrop dc-pending-approval-backdrop';
+    backdrop.style.display = 'flex';
+    backdrop.style.zIndex = 10001;
+    const displayName = String(request.displayName || request.userId || request.user || request.studentId || 'Student');
+    backdrop.innerHTML = `
+      <div class="dc-modal">
+        <h3>Join Request</h3>
+        <p style="margin: 1rem 0; color: var(--text-secondary);">${escapeHtml(displayName)} requested to join <strong>${roomCode}</strong></p>
+        <div class="dc-modal-actions">
+          <button type="button" class="dc-btn dc-btn-primary" id="dc-approve-request">Allow</button>
+          <button type="button" class="dc-btn dc-btn-ghost" id="dc-deny-request">Deny</button>
+          <button type="button" class="dc-btn" id="dc-close-request">Close</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(backdrop);
+
+    const close = () => backdrop.remove();
+
+    backdrop.querySelector('#dc-close-request')?.addEventListener('click', close);
+
+    backdrop.querySelector('#dc-approve-request')?.addEventListener('click', async () => {
+      try {
+        await api(`/classrooms/${encodeURIComponent(roomCode)}/pending-requests/${encodeURIComponent(String(request.userId||request.user||request.studentId||""))}/approve`, { method: 'POST' });
+        showDashboardMessage('Student approved.');
+        close();
+        const card = document.querySelector(`.dc-room-card[data-room-code="${roomCode}"]`);
+        card?.querySelector('.dc-room-pending-badge')?.remove();
+      } catch (err) {
+        console.error('Approve failed', err);
+        showDashboardMessage('Failed to approve.');
+      }
+    });
+
+    backdrop.querySelector('#dc-deny-request')?.addEventListener('click', async () => {
+      try {
+        await api(`/classrooms/${encodeURIComponent(roomCode)}/pending-requests/${encodeURIComponent(String(request.userId||request.user||request.studentId||""))}`, { method: 'DELETE' });
+        showDashboardMessage('Student denied.');
+        close();
+        const card = document.querySelector(`.dc-room-card[data-room-code="${roomCode}"]`);
+        card?.querySelector('.dc-room-pending-badge')?.remove();
+      } catch (err) {
+        console.error('Deny failed', err);
+        showDashboardMessage('Failed to deny.');
+      }
     });
   }
 
@@ -485,4 +545,15 @@ export function mountDashboard(
     }
     syncRooms();
   }, 15000);
+}
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>\"'`]/g, (s) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+    '`': '&#96;'
+  }[s]));
 }

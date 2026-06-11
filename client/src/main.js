@@ -103,6 +103,52 @@ function escapeHtml(str) {
   }[s]));
 }
 
+function showStudentPendingModal(message) {
+  try {
+    const existing = document.querySelector('.dc-student-pending-backdrop');
+    if (existing) return;
+    const backdrop = document.createElement('div');
+    backdrop.className = 'dc-modal-backdrop dc-student-pending-backdrop';
+    backdrop.style.display = 'flex';
+    backdrop.style.zIndex = 10001;
+    backdrop.innerHTML = `
+      <div class="dc-modal">
+        <h3>Join Request Pending</h3>
+        <p style="margin: 1rem 0; color: var(--text-secondary);">${escapeHtml(String(message || 'Your request is pending teacher approval.'))}</p>
+        <div class="dc-modal-actions">
+          <button type="button" class="dc-btn dc-btn-primary" id="dc-pending-ok">OK</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(backdrop);
+    backdrop.querySelector('#dc-pending-ok')?.addEventListener('click', () => backdrop.remove());
+  } catch (e) { console.warn('showStudentPendingModal error', e); }
+}
+
+function showStudentDecisionModal(message, onClose) {
+  try {
+    const existing = document.querySelector('.dc-student-decision-backdrop');
+    if (existing) existing.remove();
+    const backdrop = document.createElement('div');
+    backdrop.className = 'dc-modal-backdrop dc-student-decision-backdrop';
+    backdrop.style.display = 'flex';
+    backdrop.style.zIndex = 10002;
+    backdrop.innerHTML = `
+      <div class="dc-modal">
+        <h3>${escapeHtml(String(message || 'Update'))}</h3>
+        <div class="dc-modal-actions">
+          <button type="button" class="dc-btn dc-btn-primary" id="dc-decision-ok">OK</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(backdrop);
+    backdrop.querySelector('#dc-decision-ok')?.addEventListener('click', () => {
+      try { backdrop.remove(); } catch (e) {}
+      if (typeof onClose === 'function') onClose();
+    });
+  } catch (e) { console.warn('showStudentDecisionModal error', e); }
+}
+
 let dashboardChunkPrefetched = false;
 function prefetchDashboardRouteChunks() {
   if (dashboardChunkPrefetched) return;
@@ -691,6 +737,7 @@ async function renderRoute() {
       
       if (isPendingStudent) {
         page.setStatus(pendingMessage, "Pending");
+        showStudentPendingModal(pendingMessage);
       } else {
         page.setStatus("Ready to load the classroom.", "Idle");
       }
@@ -712,9 +759,23 @@ async function renderRoute() {
         
         // Auto refresh student screen layout natively once approved live by the teacher
         socket.on("pending-requests-updated", (data) => {
+          // legacy: if server emits the socket id as approved
           if (data && data.approved === socket.id) {
-            window.location.reload();
+            showStudentDecisionModal('You were approved to join. Reloading...', () => window.location.reload());
+            window.setTimeout(() => window.location.reload(), 900);
           }
+        });
+
+        socket.on('admission-approved', (payload = {}) => {
+          showStudentDecisionModal(payload?.message || 'You were approved to join the classroom.', () => {
+            try { window.location.reload(); } catch (e) { window.location.hash = `/dashboard?role=student`; }
+          });
+        });
+
+        socket.on('admission-denied', (payload = {}) => {
+          showStudentDecisionModal(payload?.message || 'Your request was denied by the teacher.', () => {
+            try { window.location.hash = `/dashboard?role=student`; } catch (e) {}
+          });
         });
       };
       

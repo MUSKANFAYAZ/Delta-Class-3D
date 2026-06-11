@@ -266,6 +266,35 @@ module.exports = function attachSocketHandlers(io, deps) {
         }
       });
 
+      // Teacher client may emit a targeted approval/denial to notify the pending student's socket
+      socket.on("student-join-approved", (payload = {}) => {
+        try {
+          const studentId = String(payload?.studentId || "");
+          if (!studentId) return;
+          for (const [sId, sckt] of io.sockets.sockets) {
+            if (sckt?.data?.userId && String(sckt.data.userId) === studentId && String(sckt.data.roomCode) === String(roomCode)) {
+              try { sckt.emit("admission-approved", { message: "Your request to join was approved." }); } catch (e) {}
+            }
+          }
+        } catch (err) {
+          console.error('student-join-approved handler error', err);
+        }
+      });
+
+      socket.on("student-join-denied", (payload = {}) => {
+        try {
+          const studentId = String(payload?.studentId || "");
+          if (!studentId) return;
+          for (const [sId, sckt] of io.sockets.sockets) {
+            if (sckt?.data?.userId && String(sckt.data.userId) === studentId && String(sckt.data.roomCode) === String(roomCode)) {
+              try { sckt.emit("admission-denied", { message: "Your request to join was denied by the teacher." }); } catch (e) {}
+            }
+          }
+        } catch (err) {
+          console.error('student-join-denied handler error', err);
+        }
+      });
+
       socket.on("discussion-image", async (payload = {}) => {
         try {
           const dataUrl = String(payload.dataUrl || "").trim();

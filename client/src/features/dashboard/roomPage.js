@@ -233,6 +233,77 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
     }, 3500);
   };
 
+  const escapeHtml = (str) => {
+    return String(str).replace(/[&<>\"'`]/g, (s) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+      '`': '&#96;'
+    }[s]));
+  };
+
+  const showPendingRequestModal = (roomCode, request) => {
+    if (!roomCode || !request) return;
+    if (document.querySelector('.dc-pending-approval-backdrop')) return;
+
+    const displayName = String(request.displayName || request.userId || request.user || request.studentId || 'Student');
+    const backdrop = document.createElement('div');
+    backdrop.className = 'dc-modal-backdrop dc-pending-approval-backdrop';
+    backdrop.style.display = 'flex';
+    backdrop.style.zIndex = 10001;
+    backdrop.innerHTML = `
+      <div class="dc-modal">
+        <h3>Join Request</h3>
+        <p style="margin: 1rem 0; color: var(--text-secondary);">${escapeHtml(displayName)} requested access to <strong>${escapeHtml(roomCode)}</strong>.</p>
+        <div class="dc-modal-actions">
+          <button type="button" class="dc-btn dc-btn-primary" id="dc-approve-request">Allow</button>
+          <button type="button" class="dc-btn dc-btn-ghost" id="dc-deny-request">Deny</button>
+          <button type="button" class="dc-btn" id="dc-close-request">Close</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(backdrop);
+
+    const close = () => backdrop.remove();
+
+    backdrop.querySelector('#dc-close-request')?.addEventListener('click', close);
+    backdrop.querySelector('#dc-approve-request')?.addEventListener('click', async () => {
+      try {
+        const studentId = String(request.userId || request.user || request.studentId || '').trim();
+        if (!studentId) throw new Error('Missing student id');
+        await api(`/classrooms/${encodeURIComponent(roomCode)}/pending-requests/${encodeURIComponent(studentId)}/approve`, { method: 'POST' });
+        if (window.activeClassroomSocket) {
+          window.activeClassroomSocket.emit('student-join-approved', { studentId });
+        }
+        showNotice('Student approved.');
+      } catch (err) {
+        console.error('Failed to approve pending request', err);
+        showNotice('Failed to approve request.');
+      } finally {
+        close();
+      }
+    });
+    backdrop.querySelector('#dc-deny-request')?.addEventListener('click', async () => {
+      try {
+        const studentId = String(request.userId || request.user || request.studentId || '').trim();
+        if (!studentId) throw new Error('Missing student id');
+        await api(`/classrooms/${encodeURIComponent(roomCode)}/pending-requests/${encodeURIComponent(studentId)}`, { method: 'DELETE' });
+        if (window.activeClassroomSocket) {
+          window.activeClassroomSocket.emit('student-join-denied', { studentId });
+        }
+        showNotice('Student denied.');
+      } catch (err) {
+        console.error('Failed to deny pending request', err);
+        showNotice('Failed to deny request.');
+      } finally {
+        close();
+      }
+    });
+  };
+
   // Initialize Voice System when socket becomes available
   const initializeVoiceSystem = async () => {
     if (window.activeClassroomSocket && !voiceSystem) {
@@ -468,7 +539,12 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
     });
 
     if (role === "teacher") {
-      window.activeClassroomSocket.on("pending-requests-updated", loadPendingRequests);
+      window.activeClassroomSocket.on("pending-requests-updated", (data) => {
+        loadPendingRequests();
+        if (data?.request) {
+          showPendingRequestModal(roomCode, data.request);
+        }
+      });
       loadPendingRequests();
     }
 
