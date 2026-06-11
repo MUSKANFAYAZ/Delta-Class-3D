@@ -1,5 +1,6 @@
 import { generateMeetingCode } from "./utils/meetingCode.js";
 import { mountDeleteButton } from "./components/DeleteButton.js";
+import { showApproveDenyDialog } from "../../utils/dialogs.js";
 
 /**
  * Formats a timestamp into a localized date string.
@@ -188,59 +189,45 @@ export function mountDashboard(
   }
 
   // Show a modal to approve/deny a single pending join request
-  function showPendingApprovalModal(roomCode, request) {
+  async function showPendingApprovalModal(roomCode, request) {
     if (!request || !roomCode) return;
-    const existing = document.querySelector('.dc-pending-approval-backdrop');
-    if (existing) return; // avoid duplicate modals
-
-    const backdrop = document.createElement('div');
-    backdrop.className = 'dc-modal-backdrop dc-pending-approval-backdrop';
-    backdrop.style.display = 'flex';
-    backdrop.style.zIndex = 10001;
     const displayName = String(request.displayName || request.userId || request.user || request.studentId || 'Student');
-    backdrop.innerHTML = `
-      <div class="dc-modal">
-        <h3>Join Request</h3>
-        <p style="margin: 1rem 0; color: var(--text-secondary);">${escapeHtml(displayName)} requested to join <strong>${roomCode}</strong></p>
-        <div class="dc-modal-actions">
-          <button type="button" class="dc-btn dc-btn-primary" id="dc-approve-request">Allow</button>
-          <button type="button" class="dc-btn dc-btn-ghost" id="dc-deny-request">Deny</button>
-          <button type="button" class="dc-btn" id="dc-close-request">Close</button>
-        </div>
-      </div>
-    `;
+    const decision = await showApproveDenyDialog(
+      'Pending Join Request',
+      `${displayName} wants to join ${roomCode}. Allow or deny this request?`
+    );
 
-    document.body.appendChild(backdrop);
-
-    const close = () => backdrop.remove();
-
-    backdrop.querySelector('#dc-close-request')?.addEventListener('click', close);
-
-    backdrop.querySelector('#dc-approve-request')?.addEventListener('click', async () => {
+    if (decision === 'approve') {
       try {
-        await api(`/classrooms/${encodeURIComponent(roomCode)}/pending-requests/${encodeURIComponent(String(request.userId||request.user||request.studentId||""))}/approve`, { method: 'POST' });
+        const studentId = String(request.userId || request.user || request.studentId || '').trim();
+        if (!studentId) throw new Error('Missing student id');
+        await api(`/classrooms/${encodeURIComponent(roomCode)}/pending-requests/${encodeURIComponent(studentId)}/approve`, {
+          method: 'POST',
+        });
+        if (window.activeClassroomSocket) {
+          window.activeClassroomSocket.emit('student-join-approved', { studentId });
+        }
         showDashboardMessage('Student approved.');
-        close();
-        const card = document.querySelector(`.dc-room-card[data-room-code="${roomCode}"]`);
-        card?.querySelector('.dc-room-pending-badge')?.remove();
       } catch (err) {
         console.error('Approve failed', err);
         showDashboardMessage('Failed to approve.');
       }
-    });
-
-    backdrop.querySelector('#dc-deny-request')?.addEventListener('click', async () => {
+    } else if (decision === 'deny') {
       try {
-        await api(`/classrooms/${encodeURIComponent(roomCode)}/pending-requests/${encodeURIComponent(String(request.userId||request.user||request.studentId||""))}`, { method: 'DELETE' });
+        const studentId = String(request.userId || request.user || request.studentId || '').trim();
+        if (!studentId) throw new Error('Missing student id');
+        await api(`/classrooms/${encodeURIComponent(roomCode)}/pending-requests/${encodeURIComponent(studentId)}`, {
+          method: 'DELETE',
+        });
+        if (window.activeClassroomSocket) {
+          window.activeClassroomSocket.emit('student-join-denied', { studentId });
+        }
         showDashboardMessage('Student denied.');
-        close();
-        const card = document.querySelector(`.dc-room-card[data-room-code="${roomCode}"]`);
-        card?.querySelector('.dc-room-pending-badge')?.remove();
       } catch (err) {
         console.error('Deny failed', err);
         showDashboardMessage('Failed to deny.');
       }
-    });
+    }
   }
 
   // --- USER MENU LOGIC ---

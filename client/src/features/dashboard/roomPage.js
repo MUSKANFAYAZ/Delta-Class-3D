@@ -1,3 +1,5 @@
+import { showApproveDenyDialog } from "../../utils/dialogs.js";
+
 export function mountRoomPage(root, { roomCode, role, api, onExit }) {
 
   root.innerHTML = "";
@@ -53,7 +55,12 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
             <ul class="dc-room-participants-list" id="participants-list"></ul>
           </details>
           <section class="dc-pending-requests-panel" id="pending-requests-panel">
-            <h3 class="dc-pending-requests-title">Pending Join Requests</h3>
+            <h3 class="dc-pending-requests-title">
+              Pending Join Requests
+              <span id="pending-request-count" class="dc-pending-request-count" style="margin-left: 0.75rem; background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; display: none; align-items: center;">
+                0
+              </span>
+            </h3>
             <div id="pending-requests-empty" class="dc-muted dc-small">No pending join requests</div>
             <ul class="dc-pending-requests-list" id="pending-requests-list"></ul>
           </section>
@@ -117,6 +124,7 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
   const pendingRequestsPanel = wrap.querySelector("#pending-requests-panel");
   const pendingRequestsList = wrap.querySelector("#pending-requests-list");
   const pendingRequestsEmpty = wrap.querySelector("#pending-requests-empty");
+  const pendingRequestCount = wrap.querySelector("#pending-request-count");
   const discussionButton = wrap.querySelector("#discussion-button");
   const handUpIcon = `
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -165,6 +173,10 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
         : "";
       pendingRequestsEmpty.style.display = pendingRequests.length ? "none" : "block";
       pendingRequestsPanel.style.display = pendingRequests.length ? "grid" : "none";
+      if (pendingRequestCount) {
+        pendingRequestCount.textContent = String(pendingRequests.length);
+        pendingRequestCount.style.display = pendingRequests.length ? "inline-flex" : "none";
+      }
 
       if (pendingRequests.length) {
         showNotice(`New join request${pendingRequests.length > 1 ? "s" : ""}.`);
@@ -284,6 +296,7 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
         showNotice('Failed to approve request.');
       } finally {
         close();
+        await loadPendingRequests();
       }
     });
     backdrop.querySelector('#dc-deny-request')?.addEventListener('click', async () => {
@@ -300,6 +313,7 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
         showNotice('Failed to deny request.');
       } finally {
         close();
+        await loadPendingRequests();
       }
     });
   };

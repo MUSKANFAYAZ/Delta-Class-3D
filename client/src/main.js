@@ -1,6 +1,6 @@
 import "./styles.css";
 import { registerServiceWorker } from "./startup/registerServiceWorker.js";
-import { showConfirmDialog } from "./utils/dialogs.js";
+import { showConfirmDialog, showAlertDialog } from "./utils/dialogs.js";
 
 registerServiceWorker();
 
@@ -103,50 +103,21 @@ function escapeHtml(str) {
   }[s]));
 }
 
-function showStudentPendingModal(message) {
+async function showStudentPendingModal(message) {
   try {
-    const existing = document.querySelector('.dc-student-pending-backdrop');
-    if (existing) return;
-    const backdrop = document.createElement('div');
-    backdrop.className = 'dc-modal-backdrop dc-student-pending-backdrop';
-    backdrop.style.display = 'flex';
-    backdrop.style.zIndex = 10001;
-    backdrop.innerHTML = `
-      <div class="dc-modal">
-        <h3>Join Request Pending</h3>
-        <p style="margin: 1rem 0; color: var(--text-secondary);">${escapeHtml(String(message || 'Your request is pending teacher approval.'))}</p>
-        <div class="dc-modal-actions">
-          <button type="button" class="dc-btn dc-btn-primary" id="dc-pending-ok">OK</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(backdrop);
-    backdrop.querySelector('#dc-pending-ok')?.addEventListener('click', () => backdrop.remove());
-  } catch (e) { console.warn('showStudentPendingModal error', e); }
+    await showAlertDialog('Join Request Pending', String(message || 'Your request is pending teacher approval.'));
+  } catch (e) {
+    console.warn('showStudentPendingModal error', e);
+  }
 }
 
-function showStudentDecisionModal(message, onClose) {
+async function showStudentDecisionModal(message, onClose) {
   try {
-    const existing = document.querySelector('.dc-student-decision-backdrop');
-    if (existing) existing.remove();
-    const backdrop = document.createElement('div');
-    backdrop.className = 'dc-modal-backdrop dc-student-decision-backdrop';
-    backdrop.style.display = 'flex';
-    backdrop.style.zIndex = 10002;
-    backdrop.innerHTML = `
-      <div class="dc-modal">
-        <h3>${escapeHtml(String(message || 'Update'))}</h3>
-        <div class="dc-modal-actions">
-          <button type="button" class="dc-btn dc-btn-primary" id="dc-decision-ok">OK</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(backdrop);
-    backdrop.querySelector('#dc-decision-ok')?.addEventListener('click', () => {
-      try { backdrop.remove(); } catch (e) {}
-      if (typeof onClose === 'function') onClose();
-    });
-  } catch (e) { console.warn('showStudentDecisionModal error', e); }
+    await showAlertDialog('Classroom Update', String(message || 'Update'));
+  } catch (e) {
+    console.warn('showStudentDecisionModal error', e);
+  }
+  if (typeof onClose === 'function') onClose();
 }
 
 let dashboardChunkPrefetched = false;
