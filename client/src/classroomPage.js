@@ -42,6 +42,14 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px" aria-hidden="true"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.13-3.36L23 10"></path><path d="M20.49 15a9 9 0 0 1-14.13 3.36L1 14"></path></svg>
             Reload
           </button>
+          ${role === "teacher" ? `
+            <button id="raise-hand-toggle-button" type="button" class="dc-btn dc-btn-ghost dc-icon-btn dc-room-icon-btn" data-tooltip="Show raised hands">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2C8 5 6 7 6 11v5a5 5 0 0 0 10 0v-5c0-4-2-6-4-9z"></path>
+                <path d="M8 10h8"></path>
+              </svg>
+            </button>
+          ` : ``}
           <button id="layout-hide-button" type="button" class="dc-btn dc-btn-ghost dc-layout-toggle-btn">
             Hide Layout
           </button>
@@ -57,7 +65,7 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
       </button>
       <main id="canvas-container" class="canvas-container dc-classroom-canvas"></main>
       ${role === "teacher" ? `
-      <aside id="raise-hand-panel" class="dc-raise-hand-panel" aria-live="polite">
+      <aside id="raise-hand-panel" class="dc-raise-hand-panel" aria-live="polite" style="display: none;">
         <h3 class="dc-raise-hand-title">Raised Hands</h3>
         <p class="dc-muted dc-small">Students who raised hands will appear here.</p>
         <details id="participants-panel" class="dc-room-participants" open>
@@ -129,6 +137,7 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
   const layoutShowButton = document.getElementById("layout-show-button");
   const muteButton = document.getElementById("mute-button");
   const raiseHandButton = document.getElementById("raise-hand-button");
+  const raiseHandToggleButton = document.getElementById("raise-hand-toggle-button");
   const modalBackdrop = document.getElementById("exit-modal-backdrop");
   const cancelExitBtn = document.getElementById("cancel-exit-btn");
   const reloadModalBackdrop = document.getElementById("reload-modal-backdrop");
@@ -374,6 +383,23 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
   };
 
   waitForRaiseHandSocket();
+
+  const updateRaiseHandToggleButton = (open) => {
+    if (!raiseHandToggleButton) return;
+    raiseHandToggleButton.setAttribute("data-tooltip", open ? "Hide raised hands" : "Show raised hands");
+    raiseHandToggleButton.style.color = open ? "#2563eb" : "";
+  };
+
+  const toggleRaiseHandPanel = () => {
+    if (!raiseHandPanel || !raiseHandToggleButton) return;
+    const isHidden = raiseHandPanel.style.display === "none";
+    raiseHandPanel.style.display = isHidden ? "block" : "none";
+    updateRaiseHandToggleButton(isHidden);
+  };
+
+  if (raiseHandToggleButton) {
+    raiseHandToggleButton.addEventListener("click", toggleRaiseHandPanel);
+  }
 
   const showModal = () => {
     modalBackdrop.style.display = "flex";

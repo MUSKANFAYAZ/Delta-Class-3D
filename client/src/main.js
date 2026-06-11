@@ -158,14 +158,14 @@ async function ensureStudentCanEnterClassroom(roomCode) {
     return { ok: true, pending: true, message: joinResult.message };
   }
 
-  if (joinResult?.teacherPresent === false) {
-    return {
-      ok: false,
-      message: "You are approved. Please wait for the teacher to enter the classroom.",
-    };
-  }
-
-  return { ok: true, pending: false };
+  return {
+    ok: true,
+    pending: false,
+    teacherPresent: joinResult?.teacherPresent !== false,
+    message: joinResult?.teacherPresent === false
+      ? "You are approved. Please wait for the teacher to enter the classroom."
+      : undefined,
+  };
 }
 
 function sendStudentBackToDashboard(role, message = CLASS_ENDED_NOTICE, showModal = false) {
@@ -710,6 +710,8 @@ async function renderRoute() {
       if (isPendingStudent) {
         page.setStatus(pendingMessage, "Pending");
         showStudentPendingModal(pendingMessage);
+      } else if (entry?.teacherPresent === false) {
+        page.setStatus("You are approved, but the teacher has not joined yet. Please wait or refresh when they arrive.", "Waiting");
       } else {
         page.setStatus("Ready to load the classroom.", "Idle");
       }
@@ -730,14 +732,6 @@ async function renderRoute() {
         localStorage.setItem("delta-active-room", roomCode);
         
         // Auto refresh student screen layout natively once approved live by the teacher
-        socket.on("pending-requests-updated", (data) => {
-          // legacy: if server emits the socket id as approved
-          if (data && data.approved === socket.id) {
-            showStudentDecisionModal('You were approved to join. Reloading...', () => window.location.reload());
-            window.setTimeout(() => window.location.reload(), 900);
-          }
-        });
-
         socket.on('admission-approved', (payload = {}) => {
           showStudentDecisionModal(payload?.message || 'You were approved to join the classroom.', () => {
             try { window.location.reload(); } catch (e) { window.location.hash = `/dashboard?role=student`; }

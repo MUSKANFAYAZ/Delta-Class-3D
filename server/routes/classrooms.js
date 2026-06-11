@@ -295,6 +295,7 @@ module.exports = function createClassroomsRouter(io) {
       await classroom.save();
 
       io.to(code).emit("pending-requests-updated", { approved: studentId, requestCount: classroom.pendingJoinRequests.length });
+      io.to(code).emit("admission-approved", { studentId });
       return res.json({ ok: true, approved: studentId });
     } catch (error) {
       console.error("[POST /auth/classrooms/:code/pending-requests/:studentId/approve]", error?.message || error);
@@ -325,6 +326,7 @@ module.exports = function createClassroomsRouter(io) {
       await classroom.save();
 
       io.to(code).emit("pending-requests-updated", { denied: studentId, requestCount: classroom.pendingJoinRequests.length });
+      io.to(code).emit("admission-denied", { studentId });
       return res.json({ ok: true, denied: studentId });
     } catch (error) {
       console.error("[DELETE /auth/classrooms/:code/pending-requests/:studentId]", error?.message || error);
