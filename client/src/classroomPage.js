@@ -1,4 +1,6 @@
-export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) {
+import { showApproveDenyDialog } from "./utils/dialogs.js";
+
+export function renderClassroomPage(appRoot, { role = "student", onExit, api } = {}) {
   if (!appRoot) {
     throw new Error("Missing app root element");
   }
@@ -62,6 +64,16 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
           <summary class="dc-room-participants-summary">Participants (<span id="participants-count">0</span>)</summary>
           <ul id="participants-list" class="dc-room-participants-list"></ul>
         </details>
+        <section id="pending-requests-panel" class="dc-pending-requests-panel">
+          <h3 class="dc-pending-requests-title">
+            Pending Join Requests
+            <span id="pending-request-count" class="dc-pending-request-count" style="margin-left: 0.75rem; background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; display: none; align-items: center;">
+              0
+            </span>
+          </h3>
+          <div id="pending-requests-empty" class="dc-muted dc-small">No pending join requests</div>
+          <ul id="pending-requests-list" class="dc-pending-requests-list"></ul>
+        </section>
         <ul id="raise-hand-list" class="dc-raise-hand-list"></ul>
       </aside>
       ` : ``}
@@ -143,6 +155,10 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
 
   const participantsCount = document.getElementById("participants-count");
   const participantsList = document.getElementById("participants-list");
+  const pendingRequestsPanel = document.getElementById("pending-requests-panel");
+  const pendingRequestsList = document.getElementById("pending-requests-list");
+  const pendingRequestsEmpty = document.getElementById("pending-requests-empty");
+  const pendingRequestCount = document.getElementById("pending-request-count");
 
   const renderParticipants = (participants = []) => {
     if (participantsCount) participantsCount.textContent = String(participants.length || 0);
@@ -151,6 +167,118 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
       ? participants.map((participant) => `<li>${participant.displayName || participant.userId || "Unknown"}</li>`).join("")
       : "<li>No participants yet</li>";
   };
+
+  const updatePendingRequestsUI = (requests) => {
+    const list = Array.isArray(requests) ? requests : [];
+    if (!pendingRequestsPanel || !pendingRequestsList || !pendingRequestsEmpty || !pendingRequestCount) return;
+
+    pendingRequestsList.innerHTML = list.length
+      ? list.map((entry) => `
+          <li class="dc-pending-request-item" data-user-id="${String(entry.userId || "").trim()}">
+            <span class="dc-pending-request-user">${String(entry.displayName || entry.userId || "Unknown").trim()}</span>
+            <div class="dc-pending-request-actions">
+              <button type="button" class="dc-btn dc-btn-primary dc-pending-approve-btn">Allow</button>
+              <button type="button" class="dc-btn dc-btn-ghost dc-pending-deny-btn">Deny</button>
+            </div>
+          </li>`)
+        .join("")
+      : "";
+
+    pendingRequestsEmpty.style.display = list.length ? "none" : "block";
+    pendingRequestsPanel.style.display = list.length ? "block" : "none";
+    pendingRequestCount.textContent = String(list.length);
+    pendingRequestCount.style.display = list.length ? "inline-flex" : "none";
+  };
+
+  const loadPendingRequests = async () => {
+    if (role !== "teacher" || !api || !classroomCode) return;
+    try {
+      const response = await api(`/classrooms/${encodeURIComponent(classroomCode)}/pending-requests`);
+      const pendingRequests = Array.isArray(response?.pendingRequests) ? response.pendingRequests : [];
+      updatePendingRequestsUI(pendingRequests);
+      return pendingRequests;
+    } catch (error) {
+      console.error("Failed to load pending requests:", error);
+      return [];
+    }
+  };
+
+  const processPendingDecision = async (studentId, approved) => {
+    if (!classroomCode || !api || !studentId) return;
+    try {
+      if (approved) {
+        await api(`/classrooms/${encodeURIComponent(classroomCode)}/pending-requests/${encodeURIComponent(studentId)}/approve`, {
+          method: "POST",
+        });
+        if (window.activeClassroomSocket) {
+          window.activeClassroomSocket.emit("student-join-approved", { studentId });
+        }
+      } else {
+        await api(`/classrooms/${encodeURIComponent(classroomCode)}/pending-requests/${encodeURIComponent(studentId)}`, {
+          method: "DELETE",
+        });
+        if (window.activeClassroomSocket) {
+          window.activeClassroomSocket.emit("student-join-denied", { studentId });
+        }
+      }
+      loadPendingRequests();
+    } catch (error) {
+      console.error("Failed to process pending request:", error);
+    }
+  };
+
+  const handlePendingRequestAction = (event) => {
+    const target = event.target;
+    if (!target) return;
+    const listItem = target.closest(".dc-pending-request-item");
+    if (!listItem) return;
+    const studentId = String(listItem.dataset.userId || "").trim();
+    if (!studentId) return;
+
+    if (target.classList.contains("dc-pending-approve-btn")) {
+      processPendingDecision(studentId, true);
+      return;
+    }
+
+    if (target.classList.contains("dc-pending-deny-btn")) {
+      processPendingDecision(studentId, false);
+      return;
+    }
+  };
+
+  const showPendingRequestModal = async (request) => {
+    if (!request || !classroomCode) return;
+    const displayName = String(request.displayName || request.userId || request.studentId || "Student");
+    const decision = await showApproveDenyDialog(
+      "Pending Join Request",
+      `${displayName} wants to join ${classroomCode}. Allow or deny this request?`
+    );
+
+    if (decision === "approve") {
+      await processPendingDecision(String(request.userId || request.studentId || "").trim(), true);
+    } else if (decision === "deny") {
+      await processPendingDecision(String(request.userId || request.studentId || "").trim(), false);
+    }
+  };
+
+  const setupPendingListeners = () => {
+    if (!window.activeClassroomSocket || role !== "teacher") return;
+    window.activeClassroomSocket.on("pending-requests-updated", (data) => {
+      loadPendingRequests();
+      if (data?.request) {
+        showPendingRequestModal(data.request);
+      }
+    });
+    loadPendingRequests();
+  };
+
+  const attachPendingRequestHandlers = () => {
+    if (pendingRequestsList) {
+      pendingRequestsList.addEventListener("click", handlePendingRequestAction);
+    }
+  };
+
+  attachPendingRequestHandlers();
 
   const setupRaiseHandListeners = () => {
     if (raiseHandListenersBound || role !== "teacher" || !raiseHandList || !window.activeClassroomSocket) return;
@@ -237,6 +365,9 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
   const waitForRaiseHandSocket = () => {
     if (window.activeClassroomSocket) {
       setupRaiseHandListeners();
+      if (role === "teacher") {
+        setupPendingListeners();
+      }
       return;
     }
     setTimeout(waitForRaiseHandSocket, 250);
@@ -427,6 +558,9 @@ export function renderClassroomPage(appRoot, { role = "student", onExit } = {}) 
       renderParticipants(Array.isArray(participants) ? participants : []);
     });
     window.activeClassroomSocket.emit("request-discussion-state");
+    if (role === "teacher") {
+      setupPendingListeners();
+    }
   }
 
   function setStatus(message, badgeText, badgeConnected = false) {

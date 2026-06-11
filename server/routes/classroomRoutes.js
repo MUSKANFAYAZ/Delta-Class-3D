@@ -441,6 +441,7 @@ router.post("/classrooms/:code/pending-requests/:studentId/approve", authMiddlew
 
     if (io) {
       io.to(code).emit("pending-requests-updated", { approved: studentId, requestCount: classroom.pendingJoinRequests.length });
+      io.to(code).emit("admission-approved", { studentId });
     }
     return res.json({ ok: true, approved: studentId });
   } catch (error) {
@@ -474,6 +475,7 @@ router.delete("/classrooms/:code/pending-requests/:studentId", authMiddleware, a
 
     if (io) {
       io.to(code).emit("pending-requests-updated", { denied: studentId, requestCount: classroom.pendingJoinRequests.length });
+      io.to(code).emit("admission-denied", { studentId });
     }
     return res.json({ ok: true, denied: studentId });
   } catch (error) {

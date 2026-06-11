@@ -206,6 +206,9 @@ export function mountDashboard(
         });
         if (window.activeClassroomSocket) {
           window.activeClassroomSocket.emit('student-join-approved', { studentId });
+        } else {
+          const socket = backgroundSockets.get(roomCode);
+          socket?.emit('student-join-approved', { studentId });
         }
         showDashboardMessage('Student approved.');
       } catch (err) {
@@ -221,6 +224,9 @@ export function mountDashboard(
         });
         if (window.activeClassroomSocket) {
           window.activeClassroomSocket.emit('student-join-denied', { studentId });
+        } else {
+          const socket = backgroundSockets.get(roomCode);
+          socket?.emit('student-join-denied', { studentId });
         }
         showDashboardMessage('Student denied.');
       } catch (err) {

@@ -543,6 +543,7 @@ async function renderRoute() {
             isTeacher: roomRole === "teacher",
           }, exitAction).catch((error) => console.error("Exit failed:", error));
         },
+        api,
       });
       const session = createRuntimeSession(new URLSearchParams(`role=${roomRole}&roomCode=${roomCode}`));
       
