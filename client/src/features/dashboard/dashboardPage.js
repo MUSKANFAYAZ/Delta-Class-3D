@@ -86,6 +86,67 @@ export function mountDashboard(
 
   root.appendChild(wrap);
 
+  // Background sockets for teacher dashboard notifications
+  const backgroundSockets = new Map();
+  async function loadSocketClientModule() {
+    try {
+      return await import("https://cdn.jsdelivr.net/npm/socket.io-client@4.8.3/dist/socket.io.esm.min.js");
+    } catch {
+      return import("socket.io-client");
+    }
+  }
+
+  async function ensureRoomSocket(roomCode) {
+    if (!roomCode || backgroundSockets.has(roomCode)) return;
+    try {
+      const { io } = await loadSocketClientModule();
+      const token = localStorage.getItem("delta-access-token") || "";
+      const socket = io({
+        path: "/socket.io",
+        transports: ["websocket", "polling"],
+        auth: { role: "teacher", roomCode, token, displayName: localStorage.getItem("delta-user-display") || "" },
+        query: { role: "teacher", roomCode, token },
+      });
+
+      socket.on("connect", () => {
+        // connected as a background listener for this room
+      });
+
+      socket.on("pending-requests-updated", (data) => {
+        try {
+          const card = document.querySelector(`.dc-room-card[data-room-code="${roomCode}"]`);
+          if (card) {
+            const top = card.querySelector('.dc-room-card-top');
+            let badge = card.querySelector('.dc-room-pending-badge');
+            const count = Number(data?.requestCount || 0);
+            if (count > 0) {
+              if (!badge) {
+                badge = document.createElement('div');
+                badge.className = 'dc-room-pending-badge dc-room-card-status dc-room-card-status--pending dc-room-pending-badge';
+                badge.style.cssText = 'background: #fef3c7; color: #d97706; padding: 4px 8px; border-radius: 4px; font-size: 0.85em; font-weight: 600;';
+                top.appendChild(badge);
+              }
+              badge.textContent = `${count} request${count > 1 ? 's' : ''}`;
+              showDashboardMessage(`${count} pending join request${count > 1 ? 's' : ''} for ${roomCode}`);
+            } else if (badge) {
+              badge.remove();
+            }
+          }
+        } catch (e) {
+          console.warn('pending-requests-updated handler error', e);
+        }
+      });
+
+      socket.on("connect_error", () => {
+        try { socket.disconnect(); } catch {};
+      });
+
+      backgroundSockets.set(roomCode, socket);
+    } catch (err) {
+      console.warn('Failed to establish background socket for room', roomCode, err);
+    }
+  }
+
   const dashboardNotice = wrap.querySelector("#dc-dashboard-notice");
   const pendingNotice = localStorage.getItem("delta-dashboard-notice") || "";
   const modalNotice = localStorage.getItem("delta-dashboard-modal") || "";
@@ -234,8 +295,10 @@ export function mountDashboard(
           </details>
           <p class="dc-room-meta">Saved: ${formatDate(room.at)}</p>
         `;
+        // Attach room code data attribute for background socket lookup
+        card.dataset.roomCode = room.code;
 
-      // --- FIX: Allow pending students to route through onRoomSelected to open connection handshake ---
+        // --- FIX: Allow pending students to route through onRoomSelected to open connection handshake ---
       card.addEventListener("click", (e) => {
         if (e.target.closest(".btn-delete-room") || e.target.closest(".dc-room-participants")) return;
         
@@ -264,6 +327,11 @@ export function mountDashboard(
       });
 
       cards.appendChild(card);
+
+      // If teacher owns this room, ensure a background socket listens for pending requests
+      if (viewerRole === "teacher" && host) {
+        ensureRoomSocket(room.code).catch(() => {});
+      }
 
       const toolWrap = document.createElement('div');
       toolWrap.style.display = 'flex';
