@@ -372,6 +372,27 @@ module.exports = function attachSocketHandlers(io, deps) {
         }
       });
 
+      socket.on("discussion-poll-delete", async (payload = {}) => {
+        try {
+          const pollId = String(payload.pollId || "").trim();
+          if (!pollId) return;
+
+          activeSession.discussionPolls = Array.isArray(activeSession.discussionPolls) ? activeSession.discussionPolls : [];
+          const existing = activeSession.discussionPolls.find((p) => String(p.id) === pollId);
+          if (!existing) return;
+
+          const isTeacher = activeSession.teacherSocketIds.has(socket.id);
+          const isOwner = String(existing.userId) === String(socket.id);
+          if (!isTeacher && !isOwner) return; // only teacher or poll owner may delete
+
+          activeSession.discussionPolls = activeSession.discussionPolls.filter((p) => String(p.id) !== pollId);
+          await persistDiscussionState(classroom, activeSession);
+          io.to(roomCode).emit("discussion-poll-delete", { id: pollId });
+        } catch (err) {
+          console.error('discussion-poll-delete error:', err);
+        }
+      });
+
       socket.on("blackboard-clear", async () => {
         activeSession.blackboardStrokes = [];
         if (classroom) {

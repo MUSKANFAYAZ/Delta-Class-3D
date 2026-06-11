@@ -147,6 +147,7 @@ export function mountRoomToolPage(root, { role = "student", roomCode = "", api, 
           <h3>${escapeHtml(poll.question)}</h3>
           <p class="dc-muted dc-small">By ${escapeHtml(poll.displayName || poll.userId || "Unknown")} · ${formatTime(poll.createdAt)}</p>
           <div class="dc-discussion-poll-options">${optionsMarkup}</div>
+          ${((currentUserId && String(poll.userId) === String(currentUserId)) || role === "teacher") ? `<div class="dc-discussion-poll-actions"><button type="button" class="dc-btn dc-btn-ghost dc-discussion-poll-delete" data-poll-id="${escapeHtml(poll.id)}">Delete</button></div>` : ''}
         </article>
       `;
     }).join("");
@@ -177,6 +178,29 @@ export function mountRoomToolPage(root, { role = "student", roomCode = "", api, 
           } catch (err) {
             console.error("Could not submit poll vote", err);
           }
+        }
+      });
+    });
+
+    pollsList.querySelectorAll(".dc-discussion-poll-delete").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const pollId = button.dataset.pollId;
+        if (!pollId) return;
+
+        try {
+          if (socket) {
+            socket.emit("discussion-poll-delete", { pollId });
+            return;
+          }
+
+          if (!discussionApi) return;
+          const response = await discussionApi(`/discussion/poll/${encodeURIComponent(pollId)}`, { method: "DELETE" });
+          if (response?.ok) {
+            discussionState.polls = discussionState.polls.filter((p) => String(p.id) !== String(pollId));
+            renderPolls();
+          }
+        } catch (err) {
+          console.error("Could not delete poll", err);
         }
       });
     });
@@ -264,6 +288,12 @@ export function mountRoomToolPage(root, { role = "student", roomCode = "", api, 
       const index = discussionState.polls.findIndex((entry) => String(entry.id) === String(poll.id));
       if (index >= 0) discussionState.polls[index] = poll;
       else discussionState.polls.unshift(poll);
+      renderPolls();
+    });
+
+    socket.on("discussion-poll-delete", ({ id } = {}) => {
+      if (!id) return;
+      discussionState.polls = discussionState.polls.filter((p) => String(p.id) !== String(id));
       renderPolls();
     });
 

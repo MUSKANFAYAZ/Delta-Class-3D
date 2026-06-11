@@ -557,6 +557,42 @@ module.exports = function createClassroomsRouter(io) {
     }
   });
 
+  router.delete("/classrooms/:code/discussion/poll/:pollId", authMiddleware, async (req, res) => {
+    try {
+      const code = normalizeRoomCode(req.params.code);
+      const pollId = String(req.params.pollId || "").trim();
+      if (!isValidRoomCode(code) || !pollId) {
+        return res.status(400).json({ ok: false, message: "Invalid request" });
+      }
+
+      const classroom = await Classroom.findOne({ code });
+      if (!classroom) {
+        return res.status(404).json({ ok: false, message: "Classroom not found" });
+      }
+
+      const polls = Array.isArray(classroom.discussionPolls) ? classroom.discussionPolls : [];
+      const existing = polls.find((p) => String(p.id) === pollId);
+      if (!existing) {
+        return res.status(404).json({ ok: false, message: "Poll not found" });
+      }
+
+      const userId = String(req.user?.sub || "");
+      const isTeacher = String(classroom.createdBy) === userId;
+      if (String(existing.userId) !== userId && !isTeacher) {
+        return res.status(403).json({ ok: false, message: "Only the poll creator or teacher may delete this poll" });
+      }
+
+      classroom.discussionPolls = polls.filter((p) => String(p.id) !== pollId);
+      await classroom.save();
+
+      io.to(code).emit("discussion-poll-delete", { id: pollId });
+      return res.json({ ok: true, deleted: pollId });
+    } catch (error) {
+      console.error("[DELETE /auth/classrooms/:code/discussion/poll/:pollId]", error?.message || error);
+      return res.status(500).json({ ok: false, message: "Error deleting poll", detail: error?.message });
+    }
+  });
+
   router.get("/_debug/mongo", (req, res) => {
     if (String(process.env.DEBUG_DB || "").toLowerCase() !== "true") {
       return res.status(404).json({ ok: false, message: "Not found" });
