@@ -1,6 +1,7 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const Classroom = require("../models/Classroom");
+const User = require("../models/User");
 const { authMiddleware } = require("../lib/auth");
 const { DEBUG_LOGS } = require("../config/server");
 const { normalizeRoomCode, isValidRoomCode } = require("../utils/roomCode");
@@ -218,9 +219,14 @@ module.exports = function createClassroomsRouter(io) {
         });
       }
 
+      let displayName = String(req.user?.name || req.user?.displayName || "").trim();
+      if (!displayName && req.user?.sub) {
+        const student = await User.findById(req.user.sub).select("name").lean();
+        displayName = String(student?.name || "").trim();
+      }
       const newRequest = {
         userId,
-        displayName: String(req.user?.name || req.user?.displayName || req.user?.phone || "").trim(),
+        displayName: displayName || String(req.user?.phone || "").trim() || "Student",
         createdAt: new Date(),
       };
 

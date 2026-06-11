@@ -68,7 +68,7 @@ router.post("/register", async (req, res) => {
 
     if (DEBUG_LOGS) console.log("[AUTH/register] User created successfully:", user._id, "Role:", user.role);
 
-    const token = signAccessToken({ sub: user._id.toString(), role: user.role, phone: user.phone });
+    const token = signAccessToken({ sub: user._id.toString(), role: user.role, phone: user.phone, name: user.name });
     return res.status(201).json({
       token,
       user: { name: user.name, role: user.role, userId: user.userId, phone: user.phone, studentClass: user.studentClass },
@@ -116,7 +116,7 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ message: "Wrong password" });
     }
 
-    const token = signAccessToken({ sub: user._id.toString(), role: user.role, phone: user.phone });
+    const token = signAccessToken({ sub: user._id.toString(), role: user.role, phone: user.phone, name: user.name });
     if (DEBUG_LOGS) console.log("[AUTH/login] Login successful for user:", user._id);
     return res.json({
       token,

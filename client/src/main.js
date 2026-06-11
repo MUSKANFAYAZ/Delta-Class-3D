@@ -652,9 +652,6 @@ async function renderRoute() {
                 li.dataset.muted = nextMuted ? "true" : "false";
                 unmuteBtn.textContent = nextMuted ? "Unmute" : "Mute";
                 socket.emit('teacher-set-audio-state', { target: userId, muted: nextMuted });
-                if (!nextMuted) {
-                  socket.emit('clear-raise-hand', { userId });
-                }
                 try {
                   if (activeVoiceSystem && typeof activeVoiceSystem.enableRemoteAudioWithGesture === 'function') {
                     activeVoiceSystem.enableRemoteAudioWithGesture();
@@ -734,7 +731,13 @@ async function renderRoute() {
         // Auto refresh student screen layout natively once approved live by the teacher
         socket.on('admission-approved', (payload = {}) => {
           showStudentDecisionModal(payload?.message || 'You were approved to join the classroom.', () => {
-            try { window.location.reload(); } catch (e) { window.location.hash = `/dashboard?role=student`; }
+            isPendingStudent = false;
+            page.setStatus('Approved by teacher. Loading classroom...', 'Approved', true);
+            if (classroomLoader && typeof classroomLoader.handleLoadClick === 'function') {
+              classroomLoader.handleLoadClick();
+            }
+            checkAndInitVoice();
+            initRaiseHandWiring();
           });
         });
 

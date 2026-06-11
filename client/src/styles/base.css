@@ -816,10 +816,14 @@ body {
 .dc-room-icon-btn svg {
   width: 24px;
   height: 24px;
+  display: block;
+  color: inherit;
 }
 
-/* Extra-large icons on very small phones */
-@media (max-width: 480px) {
+.dc-raise-hand-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
   .dc-icon-btn svg,
   .dc-room-icon-btn svg {
     width: 28px;

@@ -378,6 +378,7 @@
 .dc-classroom-tools {
   position: fixed;
   right: 18px;
+  left: auto;
   bottom: 18px;
   z-index: 60;
   display: flex;

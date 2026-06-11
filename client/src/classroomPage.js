@@ -17,14 +17,16 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
           <span id="connection-badge" class="connection">Starting</span>
           <div class="voice-controls item-group dc-room-voice-controls">
             ${role === "student" ? `
-                <button id="raise-hand-button" type="button" class="dc-btn dc-btn-ghost dc-icon-btn dc-room-icon-btn" data-tooltip="Raise Hand">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
-                    <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
-                    <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
-                    <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
-                    <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
-                  </svg>
+                <button id="raise-hand-button" type="button" class="dc-btn dc-btn-ghost dc-icon-btn dc-room-icon-btn" data-tooltip="Raise Hand" aria-label="Raise your hand">
+                  <span class="dc-raise-hand-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
+                      <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
+                      <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
+                      <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
+                      <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
+                    </svg>
+                  </span>
                 </button>
             ` : `
               <button id="presentation-button" type="button" class="dc-btn dc-btn-ghost dc-icon-btn dc-room-icon-btn" data-tooltip="Start Presentation">
@@ -257,7 +259,7 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
 
   const showPendingRequestModal = async (request) => {
     if (!request || !classroomCode) return;
-    const displayName = String(request.displayName || request.userId || request.studentId || "Student");
+    const displayName = String(request.displayName || request.name || request.userId || request.studentId || "Student");
     const decision = await showApproveDenyDialog(
       "Pending Join Request",
       `${displayName} wants to join ${classroomCode}. Allow or deny this request?`
@@ -321,9 +323,6 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
           const nextMuted = !(raiseHandState.get(userId)?.muted ?? isMuted);
           raiseHandState.set(userId, { muted: nextMuted });
           window.activeClassroomSocket.emit("teacher-set-audio-state", { target: userId, muted: nextMuted });
-          if (!nextMuted) {
-            window.activeClassroomSocket.emit("clear-raise-hand", { userId });
-          }
         });
 
         const clearBtn = document.createElement("button");
@@ -410,31 +409,30 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
   const updateRaiseHandIcon = (raised) => {
     if (!raiseHandButton) return;
 
-    raiseHandButton.innerHTML = raised
+    const iconContent = raised
       ? `
-        <span class="dc-raise-hand-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
-            <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
-            <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
-            <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
-            <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
-            <path d="M12 3v4"></path>
-            <path d="M9 6l3 3 3-3"></path>
-          </svg>
-        </span>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
+          <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
+          <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
+          <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
+          <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
+          <path d="M12 3v4"></path>
+          <path d="M9 6l3 3 3-3"></path>
+        </svg>
       `
       : `
-        <span class="dc-raise-hand-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
-            <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
-            <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
-            <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
-            <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
-          </svg>
-        </span>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
+          <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
+          <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
+          <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
+          <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
+        </svg>
       `;
+
+    raiseHandButton.innerHTML = `<span class="dc-raise-hand-icon">${iconContent}</span>`;
+    raiseHandButton.setAttribute("aria-label", raised ? "Lower your hand" : "Raise your hand");
   };
 
   if (raiseHandButton) {
@@ -548,6 +546,20 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
           raiseHandButton.classList.remove("dc-raise-hand-button--transitioning");
         }, 1000);
       }
+    });
+
+    window.addEventListener("delta-student-lowered-hand", () => {
+      if (!isHandRaised) return;
+      isHandRaised = false;
+      updateRaiseHandIcon(false);
+      raiseHandButton.setAttribute("aria-pressed", "false");
+      raiseHandButton.setAttribute("data-tooltip", "Raise Hand");
+      raiseHandButton.style.color = "";
+      raiseHandButton.classList.remove("dc-raise-hand-button--active");
+      raiseHandButton.classList.add("dc-raise-hand-button--transitioning");
+      window.setTimeout(() => {
+        raiseHandButton.classList.remove("dc-raise-hand-button--transitioning");
+      }, 1000);
     });
   }
 

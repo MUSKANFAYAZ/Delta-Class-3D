@@ -144,6 +144,21 @@ export class VoiceSystem {
         track.enabled = !this.isMuted;
       });
     }
+
+    // If a student mutes themself after being granted mic access, lower their hand too.
+    if (this.currentRole === "student" && this.isMuted) {
+      try {
+        this.socket.emit("clear-raise-hand", { userId: this.currentUserId });
+      } catch (e) {
+        console.warn("[VoiceSystem] Failed to clear raise hand on self-mute:", e);
+      }
+      try {
+        window.dispatchEvent(new Event("delta-student-lowered-hand"));
+      } catch (e) {
+        // ignore if no window context
+      }
+    }
+
     // Notify server of mute state for better bandwidth management
     this.socket.emit("audio-state-change", { muted: this.isMuted });
     return this.isMuted;
