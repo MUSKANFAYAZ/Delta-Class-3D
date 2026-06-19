@@ -456,6 +456,10 @@ export function setupBlackboardSystem({ container, renderer, camera, blackboard,
   }
 
   function onBlackboardLaser(payload = {}) {
+    if (presentationActive) {
+      return;
+    }
+
     const active = payload.active !== false;
     if (!active) {
       if (laserHideTimer) {

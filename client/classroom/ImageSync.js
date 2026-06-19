@@ -338,6 +338,24 @@ export function setupImageSync({
     window.dispatchEvent(new CustomEvent("dc-presentation-active", { detail: { active: false } }));
   });
 
+  socket.on("blackboard-laser", (payload = {}) => {
+    if (!presentationOverlay || presentationOverlay.style.display !== "flex") {
+      return;
+    }
+
+    const active = payload.active !== false;
+    if (!active) {
+      hideLaser();
+      return;
+    }
+
+    const x = Number(payload.x);
+    const y = Number(payload.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+
+    showLaser(x, y);
+  });
+
   const handleLaserModeChange = (event) => {
     if (role !== "teacher") return;
     const nextEnabled = Boolean(event?.detail?.enabled);

@@ -250,8 +250,8 @@ module.exports = function attachSocketHandlers(io, deps) {
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             type: "message",
             text,
-            displayName: activeSession.userDisplayNames?.get(socket.id) || payload.displayName || socket.id,
-            userId: socket.id,
+            displayName: activeSession.userDisplayNames?.get(socket.id) || payload.displayName || userId || socket.id,
+            userId: userId || socket.id,
             createdAt: Date.now(),
           };
           activeSession.discussionFeed = Array.isArray(activeSession.discussionFeed) ? activeSession.discussionFeed : [];
@@ -333,8 +333,8 @@ module.exports = function attachSocketHandlers(io, deps) {
             question,
             options: options.map((text) => ({ text, votes: 0 })),
             votesByUser: {},
-            displayName: activeSession.userDisplayNames?.get(socket.id) || payload.displayName || socket.id,
-            userId: socket.id,
+            displayName: activeSession.userDisplayNames?.get(socket.id) || payload.displayName || userId || socket.id,
+            userId: userId || socket.id,
             createdAt: Date.now(),
           };
 
@@ -382,7 +382,7 @@ module.exports = function attachSocketHandlers(io, deps) {
           if (!existing) return;
 
           const isTeacher = activeSession.teacherSocketIds.has(socket.id);
-          const isOwner = String(existing.userId) === String(socket.id);
+          const isOwner = String(existing.userId) === userId || String(existing.userId) === socket.id;
           if (!isTeacher && !isOwner) return; // only teacher or poll owner may delete
 
           activeSession.discussionPolls = activeSession.discussionPolls.filter((p) => String(p.id) !== pollId);
