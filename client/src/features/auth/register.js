@@ -179,7 +179,11 @@ export function mountRegister(root, { api, onDone, onGoLogin, role = "student", 
         localStorage.setItem("delta-access-token-ts", String(Date.now()));
       }
       if (data?.user?.name) localStorage.setItem("delta-user-display", data.user.name);
-      if (data?.user?.role) localStorage.setItem("delta-user-role", data.user.role);
+      if (data?.user?.role) {
+        localStorage.setItem("delta-user-role", data.user.role);
+      } else if (currentRole) {
+        localStorage.setItem("delta-user-role", currentRole);
+      }
       idValue.textContent = userId;
       idWrap.hidden = false;
       status.textContent = "Signup successful. Copy your code, then login.";

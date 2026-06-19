@@ -102,7 +102,12 @@ function escapeHtml(str) {
     '`': '&#96;'
   }[s]));
 }
-
+function getRouteRole(params) {
+  const role = String(params.get("role") || "").toLowerCase();
+  if (role === "teacher") return "teacher";
+  if (role === "student") return "student";
+  return String(localStorage.getItem("delta-user-role") || "").toLowerCase() === "teacher" ? "teacher" : "student";
+}
 async function showStudentPendingModal(message) {
   try {
     await showAlertDialog('Join Request Pending', String(message || 'Your request is pending teacher approval.'));
@@ -492,13 +497,13 @@ async function renderRoute() {
     cleanupActiveClassroomConnection();
   }
 
-  const role = params.get("role") === "teacher" ? "teacher" : "student";
+  const role = getRouteRole(params);
   const mode = params.get("mode") === "signup" ? "signup" : params.get("mode") === "login" ? "login" : "";
   const next = String(params.get("next") || "").trim();
 
   if (path === "/classroom") {
     const roomCode = params.get("code") || "";
-    const roomRole = params.get("role") === "teacher" ? "teacher" : "student";
+    const roomRole = getRouteRole(params);
     
     if (roomCode) {
       let isPendingStudent = false;
@@ -551,7 +556,7 @@ async function renderRoute() {
         loadButton: page.loadButton,
         setStatus: page.setStatus,
         role: session.role,
-        canWriteBlackboard: session.role === "teacher",
+        canWriteBlackboard: session.canWriteBlackboard,
         roomCode,
       });
       activeClassroomLoader = classroomLoader;
@@ -823,7 +828,7 @@ async function renderRoute() {
   if (path === "/room") {
     const { mountRoomPage } = await import("./features/dashboard/roomPage.js");
     const roomCode = String(params.get("code") || "").trim().toLowerCase();
-    const roomRole = params.get("role") === "teacher" ? "teacher" : "student";
+    const roomRole = getRouteRole(params);
 
     if (!roomCode) {
       navigate(`/join?role=${roomRole}`);
@@ -840,7 +845,7 @@ async function renderRoute() {
   }
 
   if (path === "/group-discussion") {
-    const routeRole = params.get("role") === "teacher" ? "teacher" : "student";
+    const routeRole = getRouteRole(params);
     const roomCode = String(params.get("code") || "").trim().toLowerCase();
 
     if (!roomCode) {
@@ -869,7 +874,7 @@ async function renderRoute() {
   }
 
   if (path === "/notes") {
-    const routeRole = params.get("role") === "teacher" ? "teacher" : "student";
+    const routeRole = getRouteRole(params);
     const roomCode = String(params.get("code") || "").trim().toLowerCase();
 
     if (!roomCode) {
@@ -889,7 +894,7 @@ async function renderRoute() {
 
   if (path === "/profile") {
     const { mountProfilePage } = await import("./features/profile/profilePage.js");
-    const currentRole = params.get("role") === "teacher" ? "teacher" : "student";
+    const currentRole = getRouteRole(params);
 
     mountProfilePage(appRoot, {
       api,

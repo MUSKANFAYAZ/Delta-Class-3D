@@ -128,7 +128,11 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
         localStorage.setItem("delta-access-token-ts", String(Date.now()));
       }
       if (data?.user?.name) localStorage.setItem("delta-user-display", data.user.name);
-      if (data?.user?.role) localStorage.setItem("delta-user-role", data.user.role);
+      if (data?.user?.role) {
+        localStorage.setItem("delta-user-role", data.user.role);
+      } else if (currentRole) {
+        localStorage.setItem("delta-user-role", currentRole);
+      }
       onDone?.();
     } catch (e) {
       status.textContent = e?.message || "Login failed.";

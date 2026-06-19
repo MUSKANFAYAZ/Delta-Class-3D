@@ -174,6 +174,10 @@ export function createClassroomLoader({
           const elapsedMs = Math.max(0, performance.now() - bootStartedAtMs);
           const elapsedSeconds = (elapsedMs / 1000).toFixed(1);
           setStatus(`Live sync connected in ${elapsedSeconds}s.`, "Connected", true);
+          if (activeSocket === socket && classroomStarted) {
+            loadButton.textContent = "3D classroom loaded";
+            loadButton.disabled = true;
+          }
         });
 
         socket.on("connect_error", () => {
@@ -214,7 +218,11 @@ export function createClassroomLoader({
   }
 
   function handleLoadClick() {
-    if (classroomStarted || bootRequested) return;
+    if (bootRequested) return;
+
+    if (classroomStarted && loadButton.textContent !== "Retry load") {
+      return;
+    }
 
     bootClassroom().catch((error) => {
       console.error("Failed to load classroom:", error);

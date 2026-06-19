@@ -20,7 +20,9 @@ function resolveBlackboardWriteAccess(params, roleValue) {
 }
 
 export function createRuntimeSession(searchParams) {
-  const role = searchParams.get("role") || "student";
+  const paramRole = String(searchParams.get("role") || "").toLowerCase();
+  const storedRole = String(localStorage.getItem("delta-user-role") || "").toLowerCase();
+  const role = paramRole === "teacher" ? "teacher" : storedRole === "teacher" ? "teacher" : "student";
   const canWriteBlackboard = resolveBlackboardWriteAccess(searchParams, role);
 
   return {
