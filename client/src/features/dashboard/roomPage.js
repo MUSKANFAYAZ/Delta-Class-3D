@@ -249,6 +249,17 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
     }, 3500);
   };
 
+  const renderParticipants = (participants = [], count) => {
+    const list = Array.isArray(participants) ? participants : [];
+    const displayCount = Number.isInteger(count) ? count : list.length;
+    const html = list.length
+      ? list.map((participant) => `<li>${escapeHtml(String(participant.displayName || participant.userId || "Unknown"))}</li>`).join("")
+      : "<li>No participants yet</li>";
+
+    if (participantsCount) participantsCount.textContent = String(displayCount);
+    if (participantsList) participantsList.innerHTML = html;
+  };
+
   const escapeHtml = (str) => {
     return String(str).replace(/[&<>\"'`]/g, (s) => ({
       '&': '&amp;',
@@ -379,6 +390,26 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
           showNotice("Hand lowered");
           window.setTimeout(() => {
             raiseHandButton.classList.remove("dc-raise-hand-button--transitioning");
+          }, 1000);
+        }
+      });
+
+      // Listen for teacher clearing the student's raised hand
+      window.activeClassroomSocket?.on("raise-hand-cleared", ({ userId }) => {
+        if (userId !== window.activeClassroomSocket.id) return;
+        isHandRaised = false;
+        if (raiseHandButton) {
+          raiseHandButton.innerHTML = handUpIcon;
+          raiseHandButton.setAttribute("aria-pressed", "false");
+          raiseHandButton.setAttribute("data-tooltip", "Raise Hand");
+          raiseHandButton.style.color = "";
+          raiseHandButton.classList.remove("dc-raise-hand-button--active");
+          raiseHandButton.classList.add("dc-raise-hand-button--transitioning");
+          showNotice("Your hand was lowered by teacher.");
+          window.setTimeout(() => {
+            if (raiseHandButton) {
+              raiseHandButton.classList.remove("dc-raise-hand-button--transitioning");
+            }
           }, 1000);
         }
       });
@@ -552,8 +583,8 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
       showNotice(`${displayName || "Student"} requested microphone access.`);
     });
 
-    window.activeClassroomSocket.on("participants-state", ({ participants = [] }) => {
-      renderParticipants(Array.isArray(participants) ? participants : []);
+    window.activeClassroomSocket.on("participants-state", ({ participants = [], count } = {}) => {
+      renderParticipants(Array.isArray(participants) ? participants : [], count);
     });
 
     if (role === "teacher") {

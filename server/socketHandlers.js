@@ -597,7 +597,10 @@ module.exports = function attachSocketHandlers(io, deps) {
           const senderIsTeacher = activeSession.teacherSocketIds.has(socket.id);
           const senderIsStudent = role === "student";
           if (senderIsTeacher) {
-            if (userId) activeSession.raiseHands.delete(userId);
+            if (userId) {
+              activeSession.raiseHands.delete(userId);
+              io.to(userId).emit("raise-hand-cleared", { userId });
+            }
           } else if (senderIsStudent && userId === socket.id) {
             activeSession.raiseHands.delete(socket.id);
           } else {
