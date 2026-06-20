@@ -418,7 +418,7 @@ export class VoiceSystem {
     try {
       const sourceNode = this.audioContext.createMediaElementSource(audioElement);
       const gainNode = this.audioContext.createGain();
-      gainNode.gain.value = speakerRole === "teacher" ? 1.45 : 1.7;
+      gainNode.gain.value = speakerRole === "teacher" ? 2.8 : 1.8;
       sourceNode.connect(gainNode).connect(this.audioContext.destination);
       this.remoteAudioSources.set(sourceKey, { sourceNode, gainNode });
     } catch (err) {
@@ -529,6 +529,39 @@ export class VoiceSystem {
     const speakerId = String(payload.speakerId || "").trim();
     if (!speakerId || speakerId === String(this.socket?.id || this.currentUserId || "")) return;
     this.ensureRelaySpeakerPlayback(speakerId, payload);
+  }
+
+  handleVoiceRelaySnapshot(payload = {}) {
+    const speakers = Array.isArray(payload.speakers) ? payload.speakers : [];
+    const history = Array.isArray(payload.history) ? payload.history : [];
+
+    speakers.forEach((speaker) => {
+      const speakerId = String(speaker?.speakerId || "").trim();
+      if (!speakerId || speakerId === String(this.socket?.id || this.currentUserId || "")) {
+        return;
+      }
+      this.ensureRelaySpeakerPlayback(speakerId, speaker);
+    });
+
+    history.forEach((entry) => {
+      const speakerId = String(entry?.speakerId || "").trim();
+      if (!speakerId || speakerId === String(this.socket?.id || this.currentUserId || "")) {
+        return;
+      }
+
+      const chunks = Array.isArray(entry?.chunks) ? entry.chunks : [];
+      chunks.forEach((chunkEntry) => {
+        this.handleVoiceRelayChunk({
+          speakerId,
+          role: speakers.find((speaker) => String(speaker?.speakerId || "") === speakerId)?.role || "student",
+          displayName: speakers.find((speaker) => String(speaker?.speakerId || "") === speakerId)?.displayName || speakerId,
+          mimeType: chunkEntry?.mimeType || speakers.find((speaker) => String(speaker?.speakerId || "") === speakerId)?.mimeType || this.voiceRelayMimeType,
+          sequence: chunkEntry?.sequence,
+          timestamp: chunkEntry?.timestamp,
+          chunk: chunkEntry?.chunk,
+        });
+      });
+    });
   }
 
   handleVoiceRelayChunk(payload = {}) {
@@ -954,13 +987,7 @@ export class VoiceSystem {
     });
 
     this.socket.on("voice-relay-state", (payload = {}) => {
-      if (!Array.isArray(payload.speakers)) {
-        return;
-      }
-
-      payload.speakers.forEach((speaker) => {
-        this.ensureRelaySpeakerPlayback(String(speaker.speakerId || ""), speaker);
-      });
+      this.handleVoiceRelaySnapshot(payload || {});
     });
 
     // Teachers receive unmute requests from students

@@ -91,6 +91,7 @@ function createActiveSessionFromClassroom(classroom) {
       : [],
     userAudioStates: new Map(),
     voiceRelaySpeakers: new Map(),
+    voiceRelayHistory: new Map(),
     raiseHands: new Set(),
     userDisplayNames: new Map(),
   };

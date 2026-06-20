@@ -37,6 +37,13 @@ module.exports = function attachSocketHandlers(io, deps) {
     return activeSession.voiceRelaySpeakers;
   }
 
+  function getVoiceRelayHistory(activeSession) {
+    if (!activeSession.voiceRelayHistory) {
+      activeSession.voiceRelayHistory = new Map();
+    }
+    return activeSession.voiceRelayHistory;
+  }
+
   function canSpeakViaRelay(activeSession, socket, role) {
     if (role === "teacher") {
       return true;
@@ -55,6 +62,29 @@ module.exports = function attachSocketHandlers(io, deps) {
         mimeType: entry.mimeType,
       })),
     });
+  }
+
+  function emitVoiceRelaySnapshot(socket, activeSession) {
+    const speakers = Array.from(getVoiceRelayState(activeSession).values()).map((entry) => ({
+      speakerId: entry.speakerId,
+      role: entry.role,
+      displayName: entry.displayName,
+      mimeType: entry.mimeType,
+    }));
+
+    const history = Array.from(getVoiceRelayHistory(activeSession).entries()).map(([speakerId, chunks]) => ({
+      speakerId,
+      chunks: Array.isArray(chunks)
+        ? chunks.map((chunkEntry) => ({
+            sequence: chunkEntry.sequence,
+            timestamp: chunkEntry.timestamp,
+            mimeType: chunkEntry.mimeType,
+            chunk: chunkEntry.chunk,
+          }))
+        : [],
+    }));
+
+    socket.emit("voice-relay-state", { speakers, history });
   }
 
   function getParticipantRoster(roomCode, activeSession) {
@@ -482,6 +512,9 @@ module.exports = function attachSocketHandlers(io, deps) {
         const relaySpeakers = activeSession.voiceRelaySpeakers;
         if (relaySpeakers && relaySpeakers.has(socket.id)) {
           relaySpeakers.delete(socket.id);
+          if (activeSession.voiceRelayHistory?.has(socket.id)) {
+            activeSession.voiceRelayHistory.delete(socket.id);
+          }
           io.to(roomCode).emit("voice-relay-stop", {
             speakerId: socket.id,
             reason: "disconnect",
@@ -517,10 +550,12 @@ module.exports = function attachSocketHandlers(io, deps) {
       socket.broadcast.to(roomCode).emit("peer-joined", { userId: socket.id, role });
 
       emitExistingPeers(socket, roomCode, activeSession);
+      emitVoiceRelaySnapshot(socket, activeSession);
       emitVoiceScalingState(roomCode);
 
       socket.on("request-existing-peers", () => {
         emitExistingPeers(socket, roomCode, activeSession);
+        emitVoiceRelaySnapshot(socket, activeSession);
         emitVoiceScalingState(roomCode);
       });
 
@@ -588,6 +623,19 @@ module.exports = function attachSocketHandlers(io, deps) {
           currentState.displayName = activeSession.userDisplayNames?.get(speakerId) || currentState.displayName || speakerId;
           currentState.updatedAt = Date.now();
           relaySpeakers.set(speakerId, currentState);
+
+          const history = getVoiceRelayHistory(activeSession);
+          const speakerHistory = Array.isArray(history.get(speakerId)) ? history.get(speakerId) : [];
+          speakerHistory.push({
+            sequence: Number(payload.sequence || 0),
+            timestamp: Number(payload.timestamp || Date.now()),
+            mimeType: currentState.mimeType,
+            chunk,
+          });
+          while (speakerHistory.length > 40) {
+            speakerHistory.shift();
+          }
+          history.set(speakerId, speakerHistory);
 
           socket.broadcast.to(roomCode).emit("voice-relay-chunk", {
             speakerId,
