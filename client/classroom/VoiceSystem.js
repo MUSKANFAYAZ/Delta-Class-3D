@@ -21,7 +21,7 @@ export class VoiceSystem {
     this.voiceRelayBitrate = 16000;
     
     // Voice state
-    this.isMuted = true;
+    this.isMuted = this.currentRole === "teacher" ? false : true;
     this.isDeafened = false; // for students to mute teacher's voice locally
     
     // Connection tracking for better multi-user support
