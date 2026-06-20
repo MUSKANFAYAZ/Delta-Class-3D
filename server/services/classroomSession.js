@@ -90,6 +90,7 @@ function createActiveSessionFromClassroom(classroom) {
       ? [...classroom.discussionPolls]
       : [],
     userAudioStates: new Map(),
+    voiceRelaySpeakers: new Map(),
     raiseHands: new Set(),
     userDisplayNames: new Map(),
   };

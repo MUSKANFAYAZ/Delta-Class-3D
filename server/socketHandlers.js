@@ -20,17 +20,40 @@ module.exports = function attachSocketHandlers(io, deps) {
 
   function emitVoiceScalingState(roomCode) {
     const participantCount = Number(io.sockets.adapter.rooms.get(roomCode)?.size || 0);
-    const recommendRelay = participantCount > VOICE_MESH_PARTICIPANT_LIMIT;
 
     io.to(roomCode).emit("voice-scaling-state", {
       roomCode,
       participantCount,
       meshParticipantLimit: VOICE_MESH_PARTICIPANT_LIMIT,
-      recommendRelay,
-      topology: recommendRelay ? "teacher-priority-mesh" : "full-mesh",
-      message: recommendRelay
-        ? `Large voice room detected (${participantCount} participants). Use SFU/media relay for best teacher uplink stability.`
-        : `Mesh voice mode active (${participantCount} participants).`,
+      topology: "server-relay",
+      message: `Room audio is relayed through the classroom server so the teacher and approved students are audible to everyone.`,
+    });
+  }
+
+  function getVoiceRelayState(activeSession) {
+    if (!activeSession.voiceRelaySpeakers) {
+      activeSession.voiceRelaySpeakers = new Map();
+    }
+    return activeSession.voiceRelaySpeakers;
+  }
+
+  function canSpeakViaRelay(activeSession, socket, role) {
+    if (role === "teacher") {
+      return true;
+    }
+
+    const audioState = activeSession.userAudioStates?.get(socket.id);
+    return Boolean(audioState && audioState.muted === false);
+  }
+
+  function broadcastVoiceRelayState(roomCode, activeSession) {
+    io.to(roomCode).emit("voice-relay-state", {
+      speakers: Array.from(getVoiceRelayState(activeSession).values()).map((entry) => ({
+        speakerId: entry.speakerId,
+        role: entry.role,
+        displayName: entry.displayName,
+        mimeType: entry.mimeType,
+      })),
     });
   }
 
@@ -456,6 +479,16 @@ module.exports = function attachSocketHandlers(io, deps) {
           activeSession.userAudioStates.delete(socket.id);
         }
 
+        const relaySpeakers = activeSession.voiceRelaySpeakers;
+        if (relaySpeakers && relaySpeakers.has(socket.id)) {
+          relaySpeakers.delete(socket.id);
+          io.to(roomCode).emit("voice-relay-stop", {
+            speakerId: socket.id,
+            reason: "disconnect",
+          });
+          broadcastVoiceRelayState(roomCode, activeSession);
+        }
+
         if (role === "teacher" && activeSession.teacherSocketIds.size === 0) {
           activeSession.teacherPresent = false;
         }
@@ -505,6 +538,86 @@ module.exports = function attachSocketHandlers(io, deps) {
       socket.on("webrtc-candidate", ({ target, candidate }) => {
         if (DEBUG_LOGS && candidate) console.log(`ICE candidate from ${socket.id} to ${target}`);
         io.to(target).emit("webrtc-candidate", { caller: socket.id, candidate });
+      });
+
+      socket.on("voice-relay-start", (payload = {}) => {
+        try {
+          if (!canSpeakViaRelay(activeSession, socket, role)) {
+            return;
+          }
+
+          const relaySpeakers = getVoiceRelayState(activeSession);
+          const speakerId = socket.id;
+          const displayName = activeSession.userDisplayNames?.get(speakerId) || String(payload.displayName || speakerId).trim() || speakerId;
+          const nextState = {
+            speakerId,
+            role: role === "teacher" ? "teacher" : "student",
+            displayName,
+            mimeType: String(payload.mimeType || "audio/webm;codecs=opus"),
+            updatedAt: Date.now(),
+          };
+
+          relaySpeakers.set(speakerId, nextState);
+          io.to(roomCode).emit("voice-relay-start", nextState);
+          broadcastVoiceRelayState(roomCode, activeSession);
+        } catch (err) {
+          console.error("voice-relay-start error:", err);
+        }
+      });
+
+      socket.on("voice-relay-chunk", (payload = {}) => {
+        try {
+          if (!canSpeakViaRelay(activeSession, socket, role)) {
+            return;
+          }
+
+          const chunk = payload?.chunk;
+          if (!chunk) return;
+
+          const relaySpeakers = getVoiceRelayState(activeSession);
+          const speakerId = socket.id;
+          const currentState = relaySpeakers.get(speakerId) || {
+            speakerId,
+            role: role === "teacher" ? "teacher" : "student",
+            displayName: activeSession.userDisplayNames?.get(speakerId) || speakerId,
+            mimeType: String(payload.mimeType || "audio/webm;codecs=opus"),
+            updatedAt: Date.now(),
+          };
+
+          currentState.mimeType = String(payload.mimeType || currentState.mimeType || "audio/webm;codecs=opus");
+          currentState.displayName = activeSession.userDisplayNames?.get(speakerId) || currentState.displayName || speakerId;
+          currentState.updatedAt = Date.now();
+          relaySpeakers.set(speakerId, currentState);
+
+          io.to(roomCode).emit("voice-relay-chunk", {
+            speakerId,
+            role: currentState.role,
+            displayName: currentState.displayName,
+            mimeType: currentState.mimeType,
+            sequence: Number(payload.sequence || 0),
+            timestamp: Number(payload.timestamp || Date.now()),
+            chunk,
+          });
+        } catch (err) {
+          console.error("voice-relay-chunk error:", err);
+        }
+      });
+
+      socket.on("voice-relay-stop", (payload = {}) => {
+        try {
+          const relaySpeakers = getVoiceRelayState(activeSession);
+          const speakerId = socket.id;
+          if (relaySpeakers.has(speakerId)) {
+            relaySpeakers.delete(speakerId);
+            io.to(roomCode).emit("voice-relay-stop", {
+              speakerId,
+              reason: String(payload.reason || "stopped"),
+            });
+            broadcastVoiceRelayState(roomCode, activeSession);
+          }
+        } catch (err) {
+          console.error("voice-relay-stop error:", err);
+        }
       });
 
       socket.on("audio-state-change", ({ muted, deafened, target }) => {

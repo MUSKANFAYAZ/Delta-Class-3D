@@ -13,6 +13,12 @@ export class VoiceSystem {
     this.localAudioTrack = null;
     this.remoteAudioSources = new Map(); // userId -> AudioContext MediaElementAudioSourceNode
     this.peerReconnectAttempts = new Map(); // userId -> attempt count
+    this.voiceRelayRecorders = new Map();
+    this.voiceRelayRemotePlayers = new Map();
+    this.voiceRelaySequence = 0;
+    this.useServerVoiceRelay = true;
+    this.voiceRelayMimeType = "audio/webm;codecs=opus";
+    this.voiceRelayBitrate = 16000;
     
     // Voice state
     this.isMuted = true;
@@ -35,6 +41,10 @@ export class VoiceSystem {
   }
 
   shouldConnectToPeer(peer) {
+    if (this.useServerVoiceRelay) {
+      return false;
+    }
+
     const peerId = typeof peer === "string" ? peer : peer?.userId;
     const selfId = this.socket?.id || this.currentUserId;
     if (!peerId || peerId === this.currentUserId || peerId === selfId) {
@@ -84,14 +94,16 @@ export class VoiceSystem {
 
   applyVoiceScalingState(payload = {}) {
     this.meshParticipantLimit = Number(payload.meshParticipantLimit || this.meshParticipantLimit || 12);
-    // Do not enforce teacher-only mesh in this implementation.
-    // Keep the scaling banner as a recommendation, but allow full-mesh audio connectivity.
     this.teacherOnlyMesh = false;
-    this.upsertVoiceScalingBanner(payload);
-
-    if (payload?.recommendRelay) {
-      console.warn("[VoiceSystem]", payload.message || "SFU/media relay is recommended for this room size.");
+    if (payload?.topology === "server-relay") {
+      this.upsertVoiceScalingBanner({ recommendRelay: false });
+      if (payload.message) {
+        console.info("[VoiceSystem]", payload.message);
+      }
+      return;
     }
+
+    this.upsertVoiceScalingBanner(payload);
   }
 
   requestExistingPeers() {
@@ -116,6 +128,7 @@ export class VoiceSystem {
     this.requestExistingPeers();
     this.resumeAudioContext();
     this.refreshRemoteAudioElements();
+    this.syncVoiceRelayState();
   }
 
   handleSocketDisconnect(reason) {
@@ -125,6 +138,7 @@ export class VoiceSystem {
 
     console.log("[VoiceSystem] Socket disconnected", reason || "");
     this.isSocketConnected = false;
+    this.stopVoiceRelay(reason || "socket-disconnect");
 
     if (this.disconnectCleanupTimer) {
       clearTimeout(this.disconnectCleanupTimer);
@@ -177,6 +191,8 @@ export class VoiceSystem {
       });
     }
 
+    this.syncVoiceRelayState();
+
     // If a student mutes themself after being granted mic access, lower their hand too.
     if (this.currentRole === "student" && this.isMuted) {
       try {
@@ -217,7 +233,10 @@ export class VoiceSystem {
       document.querySelectorAll(".dc-remote-audio").forEach((audio) => {
         audio.muted = this.isDeafened;
       });
+      this.refreshRemoteAudioElements();
     }
+
+    this.syncVoiceRelayState();
   }
 
   async ensureLocalTrackOnPeers() {
@@ -265,10 +284,355 @@ export class VoiceSystem {
       audio.muted = this.isDeafened;
       audio.autoplay = true;
       audio.playsInline = true;
-      audio.volume = 0.8; // Prevent clipping in multi-user scenarios
+      audio.volume = 1.0;
       audio.play?.().catch(() => {});
     });
     this.resumeAudioContext();
+  }
+
+  getPreferredRelayMimeType() {
+    const candidates = [
+      "audio/webm;codecs=opus",
+      "audio/webm",
+      "audio/ogg;codecs=opus",
+    ];
+
+    return candidates.find((mimeType) => typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported?.(mimeType)) || "";
+  }
+
+  async emitVoiceRelayStart() {
+    if (!this.socket?.connected || this.destroyed) {
+      return false;
+    }
+
+    const mimeType = this.getPreferredRelayMimeType() || this.voiceRelayMimeType;
+    this.voiceRelayMimeType = mimeType || this.voiceRelayMimeType;
+
+    try {
+      this.socket.emit("voice-relay-start", {
+        displayName: localStorage.getItem("delta-user-display") || "",
+        mimeType: this.voiceRelayMimeType,
+      });
+      return true;
+    } catch (err) {
+      console.warn("[VoiceSystem] Failed to announce voice relay start:", err);
+      return false;
+    }
+  }
+
+  async startVoiceRelay() {
+    if (!this.useServerVoiceRelay || !this.localStream || this.isMuted || this.destroyed || !this.socket?.connected) {
+      return;
+    }
+
+    if (this.voiceRelayRecorders.has("local")) {
+      return;
+    }
+
+    const mimeType = this.getPreferredRelayMimeType() || this.voiceRelayMimeType;
+    this.voiceRelayMimeType = mimeType || this.voiceRelayMimeType;
+
+    try {
+      const recorderOptions = {
+        mimeType: this.voiceRelayMimeType,
+        audioBitsPerSecond: this.voiceRelayBitrate,
+      };
+      const recorder = new MediaRecorder(this.localStream, recorderOptions);
+      this.voiceRelayRecorders.set("local", recorder);
+
+      recorder.ondataavailable = async (event) => {
+        try {
+          if (this.destroyed || this.isMuted || !event?.data || event.data.size === 0 || !this.socket?.connected) {
+            return;
+          }
+
+          const chunk = await event.data.arrayBuffer();
+          this.socket.emit("voice-relay-chunk", {
+            mimeType: this.voiceRelayMimeType,
+            sequence: ++this.voiceRelaySequence,
+            timestamp: Date.now(),
+            chunk,
+          });
+        } catch (err) {
+          console.warn("[VoiceSystem] Failed to send voice relay chunk:", err);
+        }
+      };
+
+      recorder.onerror = (event) => {
+        console.warn("[VoiceSystem] Voice relay recorder error:", event?.error || event);
+      };
+
+      recorder.onstop = () => {
+        this.voiceRelayRecorders.delete("local");
+      };
+
+      await this.emitVoiceRelayStart();
+      recorder.start(220);
+      console.log("[VoiceSystem] Server voice relay started");
+    } catch (err) {
+      this.voiceRelayRecorders.delete("local");
+      console.warn("[VoiceSystem] Failed to start voice relay:", err);
+    }
+  }
+
+  stopVoiceRelay(reason = "muted") {
+    const recorder = this.voiceRelayRecorders.get("local");
+    if (recorder && recorder.state !== "inactive") {
+      try {
+        recorder.stop();
+      } catch (err) {
+        console.warn("[VoiceSystem] Failed to stop voice relay recorder:", err);
+      }
+    }
+
+    this.voiceRelayRecorders.delete("local");
+
+    if (this.socket?.connected && !this.destroyed) {
+      try {
+        this.socket.emit("voice-relay-stop", { reason });
+      } catch (err) {
+        console.warn("[VoiceSystem] Failed to announce voice relay stop:", err);
+      }
+    }
+  }
+
+  syncVoiceRelayState() {
+    if (this.isMuted || !this.localStream || !this.socket?.connected || this.destroyed) {
+      this.stopVoiceRelay(this.isMuted ? "muted" : "inactive");
+      return;
+    }
+
+    this.startVoiceRelay();
+  }
+
+  attachAudioBoost(audioElement, speakerRole = "student") {
+    if (!audioElement || !this.audioContext) {
+      return;
+    }
+
+    const sourceKey = audioElement.id || audioElement.dataset?.speakerId || audioElement;
+    if (this.remoteAudioSources.has(sourceKey)) {
+      return;
+    }
+
+    try {
+      const sourceNode = this.audioContext.createMediaElementSource(audioElement);
+      const gainNode = this.audioContext.createGain();
+      gainNode.gain.value = speakerRole === "teacher" ? 1.45 : 1.7;
+      sourceNode.connect(gainNode).connect(this.audioContext.destination);
+      this.remoteAudioSources.set(sourceKey, { sourceNode, gainNode });
+    } catch (err) {
+      console.warn("[VoiceSystem] Failed to attach audio boost:", err);
+    }
+  }
+
+  ensureRelaySpeakerPlayback(speakerId, payload = {}) {
+    if (speakerId === (this.socket?.id || this.currentUserId)) {
+      return null;
+    }
+
+    let entry = this.voiceRelayRemotePlayers.get(speakerId);
+    if (entry) {
+      if (payload.displayName) entry.displayName = payload.displayName;
+      if (payload.mimeType) entry.mimeType = payload.mimeType;
+      if (payload.role) entry.role = payload.role;
+      return entry;
+    }
+
+    const mimeType = String(payload.mimeType || this.voiceRelayMimeType || "audio/webm;codecs=opus");
+    const audio = document.createElement("audio");
+    audio.id = `voice-relay-${speakerId}`;
+    audio.className = "dc-remote-audio dc-voice-relay-audio";
+    audio.autoplay = true;
+    audio.playsInline = true;
+    audio.preload = "auto";
+    audio.muted = this.isDeafened;
+    audio.dataset.speakerId = speakerId;
+    audio.dataset.role = payload.role || "student";
+    audio.dataset.displayName = payload.displayName || speakerId;
+    audio.volume = 1.0;
+
+    document.body.appendChild(audio);
+
+    entry = {
+      speakerId,
+      displayName: payload.displayName || speakerId,
+      role: payload.role || "student",
+      mimeType,
+      audio,
+      mediaSource: null,
+      sourceBuffer: null,
+      queue: [],
+      objectUrl: null,
+      ready: false,
+      stopped: false,
+      appendedChunks: 0,
+    };
+
+    this.voiceRelayRemotePlayers.set(speakerId, entry);
+
+    if (typeof MediaSource !== "undefined" && MediaSource.isTypeSupported?.(mimeType)) {
+      const mediaSource = new MediaSource();
+      entry.mediaSource = mediaSource;
+      entry.objectUrl = URL.createObjectURL(mediaSource);
+      audio.src = entry.objectUrl;
+
+      mediaSource.addEventListener("sourceopen", () => {
+        try {
+          if (entry.stopped || this.destroyed) {
+            return;
+          }
+
+          const sourceBuffer = mediaSource.addSourceBuffer(mimeType);
+          sourceBuffer.mode = "sequence";
+          sourceBuffer.addEventListener("updateend", () => {
+            this.flushRelaySpeakerQueue(speakerId);
+          });
+          entry.sourceBuffer = sourceBuffer;
+          entry.ready = true;
+          this.flushRelaySpeakerQueue(speakerId);
+          audio.play().catch(() => {});
+        } catch (err) {
+          console.warn(`[VoiceSystem] Failed to open relay source for ${speakerId}:`, err);
+        }
+      }, { once: true });
+    } else {
+      entry.ready = true;
+    }
+
+    this.attachAudioBoost(audio, payload.role || "student");
+    audio.play().catch(() => {});
+    return entry;
+  }
+
+  flushRelaySpeakerQueue(speakerId) {
+    const entry = this.voiceRelayRemotePlayers.get(speakerId);
+    if (!entry || !entry.sourceBuffer || entry.sourceBuffer.updating || entry.queue.length === 0) {
+      return;
+    }
+
+    const nextChunk = entry.queue.shift();
+    if (!nextChunk) {
+      return;
+    }
+
+    try {
+      entry.sourceBuffer.appendBuffer(nextChunk);
+      entry.appendedChunks += 1;
+    } catch (err) {
+      console.warn(`[VoiceSystem] Failed to append relay chunk for ${speakerId}:`, err);
+      entry.queue.unshift(nextChunk);
+    }
+  }
+
+  handleVoiceRelayStart(payload = {}) {
+    const speakerId = String(payload.speakerId || "").trim();
+    if (!speakerId) return;
+    this.ensureRelaySpeakerPlayback(speakerId, payload);
+  }
+
+  handleVoiceRelayChunk(payload = {}) {
+    const speakerId = String(payload.speakerId || "").trim();
+    const chunk = payload.chunk;
+    if (!speakerId || !chunk) return;
+
+    const entry = this.ensureRelaySpeakerPlayback(speakerId, payload);
+    if (!entry) return;
+
+    const buffer = chunk instanceof ArrayBuffer
+      ? chunk
+      : ArrayBuffer.isView(chunk)
+        ? chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength)
+        : chunk?.arrayBuffer
+          ? null
+          : chunk?.buffer;
+    if (!buffer) return;
+
+    if (!entry.sourceBuffer) {
+      try {
+        const blob = new Blob([buffer], { type: entry.mimeType || this.voiceRelayMimeType });
+        const objectUrl = URL.createObjectURL(blob);
+        const fallbackAudio = new Audio(objectUrl);
+        fallbackAudio.autoplay = true;
+        fallbackAudio.playsInline = true;
+        fallbackAudio.volume = 1.0;
+        fallbackAudio.muted = this.isDeafened;
+        fallbackAudio.play().catch(() => {}).finally(() => {
+          URL.revokeObjectURL(objectUrl);
+        });
+      } catch (err) {
+        console.warn(`[VoiceSystem] Fallback relay playback failed for ${speakerId}:`, err);
+      }
+      return;
+    }
+
+    if (entry.sourceBuffer && !entry.sourceBuffer.updating) {
+      try {
+        entry.sourceBuffer.appendBuffer(buffer);
+        entry.appendedChunks += 1;
+      } catch (err) {
+        console.warn(`[VoiceSystem] Failed to append relay chunk for ${speakerId}:`, err);
+        entry.queue.push(buffer);
+      }
+    } else {
+      entry.queue.push(buffer);
+      this.flushRelaySpeakerQueue(speakerId);
+    }
+
+    if (entry.audio?.paused) {
+      entry.audio.play().catch(() => {});
+    }
+  }
+
+  handleVoiceRelayStop(payload = {}) {
+    const speakerId = String(payload.speakerId || "").trim();
+    if (!speakerId) return;
+
+    const entry = this.voiceRelayRemotePlayers.get(speakerId);
+    if (!entry) return;
+
+    entry.stopped = true;
+    entry.queue.length = 0;
+
+    try {
+      if (entry.sourceBuffer?.updating) {
+        try {
+          entry.sourceBuffer.abort();
+        } catch (err) {
+          console.warn(`[VoiceSystem] Failed to abort relay source buffer for ${speakerId}:`, err);
+        }
+      }
+
+      if (entry.mediaSource && entry.mediaSource.readyState === "open") {
+        try {
+          entry.mediaSource.endOfStream();
+        } catch (err) {
+          console.warn(`[VoiceSystem] Failed to end relay media source for ${speakerId}:`, err);
+        }
+      }
+    } catch (err) {
+      console.warn(`[VoiceSystem] Relay speaker cleanup warning for ${speakerId}:`, err);
+    }
+
+    if (entry.audio) {
+      try {
+        entry.audio.pause();
+      } catch (err) {
+        console.warn(`[VoiceSystem] Failed to pause relay audio for ${speakerId}:`, err);
+      }
+      entry.audio.srcObject = null;
+      if (entry.objectUrl) {
+        try {
+          URL.revokeObjectURL(entry.objectUrl);
+        } catch (err) {
+          console.warn(`[VoiceSystem] Failed to revoke relay object URL for ${speakerId}:`, err);
+        }
+      }
+      entry.audio.remove();
+    }
+
+    this.voiceRelayRemotePlayers.delete(speakerId);
+    this.remoteAudioSources.delete(`voice-relay-${speakerId}`);
   }
 
   async initLocalStream() {
@@ -308,6 +672,7 @@ export class VoiceSystem {
       });
       
       this.refreshRemoteAudioElements();
+      this.syncVoiceRelayState();
       console.log("[VoiceSystem] Local stream initialized successfully");
       this.requestExistingPeers();
       return true;
@@ -346,6 +711,10 @@ export class VoiceSystem {
   }
 
   async connectToPeerList(peers = []) {
+    if (this.useServerVoiceRelay) {
+      return;
+    }
+
     const normalizedPeers = peers
       .map((peer) => (typeof peer === "string"
         ? { userId: peer, role: null }
@@ -391,6 +760,10 @@ export class VoiceSystem {
     });
 
     this.socket.on("peer-joined", async ({ userId, role }) => {
+      if (this.useServerVoiceRelay) {
+        return;
+      }
+
       const selfId = this.socket?.id || this.currentUserId;
       if (userId === this.currentUserId || userId === selfId) {
         console.log("[VoiceSystem] Received our own user ID confirmation");
@@ -415,6 +788,10 @@ export class VoiceSystem {
     });
 
     this.socket.on("existing-peers", async (peers) => {
+      if (this.useServerVoiceRelay) {
+        return;
+      }
+
       if (!Array.isArray(peers) || peers.length === 0) {
         return;
       }
@@ -424,6 +801,10 @@ export class VoiceSystem {
     });
 
     this.socket.on("webrtc-offer", async ({ caller, callerRole, offer }) => {
+      if (this.useServerVoiceRelay) {
+        return;
+      }
+
       try {
         if (!this.shouldConnectToPeer({ userId: caller, role: callerRole || null })) {
           return;
@@ -447,6 +828,10 @@ export class VoiceSystem {
     });
 
     this.socket.on("webrtc-answer", async ({ caller, answer }) => {
+      if (this.useServerVoiceRelay) {
+        return;
+      }
+
       try {
         const pc = this.peers.get(caller);
         if (!pc) {
@@ -500,6 +885,10 @@ export class VoiceSystem {
     });
 
     this.socket.on("webrtc-candidate", async ({ caller, candidate }) => {
+      if (this.useServerVoiceRelay) {
+        return;
+      }
+
       try {
         const pc = this.peers.get(caller);
         if (pc && candidate) {
@@ -552,6 +941,28 @@ export class VoiceSystem {
       // UI integration point: teacher UI can subscribe to socket events
     });
 
+    this.socket.on("voice-relay-start", (payload) => {
+      this.handleVoiceRelayStart(payload || {});
+    });
+
+    this.socket.on("voice-relay-chunk", (payload) => {
+      this.handleVoiceRelayChunk(payload || {});
+    });
+
+    this.socket.on("voice-relay-stop", (payload) => {
+      this.handleVoiceRelayStop(payload || {});
+    });
+
+    this.socket.on("voice-relay-state", (payload = {}) => {
+      if (!Array.isArray(payload.speakers)) {
+        return;
+      }
+
+      payload.speakers.forEach((speaker) => {
+        this.ensureRelaySpeakerPlayback(String(speaker.speakerId || ""), speaker);
+      });
+    });
+
     // Teachers receive unmute requests from students
     this.socket.on("unmute-request", ({ userId }) => {
       console.log("[VoiceSystem] Unmute request from:", userId);
@@ -563,6 +974,10 @@ export class VoiceSystem {
   }
 
   async initPeerConnection(userId, isInitiator) {
+    if (this.useServerVoiceRelay) {
+      return null;
+    }
+
     if (this.peers.has(userId)) {
       const existingPc = this.peers.get(userId);
       if (existingPc.connectionState === "connected" || existingPc.connectionState === "connecting") {
@@ -799,6 +1214,16 @@ export class VoiceSystem {
       a.srcObject = null;
       a.remove();
     });
+
+    this.voiceRelayRemotePlayers.forEach((entry) => {
+      try {
+        entry.audio?.pause?.();
+      } catch (err) {
+        console.warn("[VoiceSystem] Error pausing relay audio during destroy:", err);
+      }
+    });
+    this.voiceRelayRemotePlayers.clear();
+    this.voiceRelayRecorders.clear();
 
     const scalingBanner = document.getElementById(this.voiceScalingBannerId);
     if (scalingBanner) {
