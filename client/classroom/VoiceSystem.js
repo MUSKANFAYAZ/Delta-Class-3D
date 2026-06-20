@@ -34,7 +34,8 @@ export class VoiceSystem {
 
   shouldConnectToPeer(peer) {
     const peerId = typeof peer === "string" ? peer : peer?.userId;
-    if (!peerId || peerId === this.currentUserId) {
+    const selfId = this.socket?.id || this.currentUserId;
+    if (!peerId || peerId === this.currentUserId || peerId === selfId) {
       return false;
     }
     return true;
@@ -337,7 +338,8 @@ export class VoiceSystem {
     this.socket.on("connect", this.handleSocketConnect);
 
     this.socket.on("peer-joined", async ({ userId, role }) => {
-      if (userId === this.currentUserId) {
+      const selfId = this.socket?.id || this.currentUserId;
+      if (userId === this.currentUserId || userId === selfId) {
         console.log("[VoiceSystem] Received our own user ID confirmation");
         return;
       }
