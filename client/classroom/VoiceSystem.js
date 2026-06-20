@@ -4,6 +4,8 @@ export class VoiceSystem {
     this.currentUserId = currentUserId || socket?.id || null;
     this.currentRole = currentRole; // 'teacher' or 'student'
     this.destroyed = false;
+    this.isSocketConnected = Boolean(socket?.connected);
+    this.disconnectCleanupTimer = null;
     
     this.peers = new Map(); // userId -> RTCPeerConnection
     this.localStream = null;
@@ -105,8 +107,14 @@ export class VoiceSystem {
       return;
     }
 
+    this.isSocketConnected = true;
+    if (this.disconnectCleanupTimer) {
+      clearTimeout(this.disconnectCleanupTimer);
+      this.disconnectCleanupTimer = null;
+    }
     this.currentUserId = this.socket.id || this.currentUserId;
     this.requestExistingPeers();
+    this.resumeAudioContext();
     this.refreshRemoteAudioElements();
   }
 
@@ -116,11 +124,34 @@ export class VoiceSystem {
     }
 
     console.log("[VoiceSystem] Socket disconnected", reason || "");
+    this.isSocketConnected = false;
 
-    this.peerReconnectAttempts.clear();
-    Array.from(this.peers.keys()).forEach((userId) => {
-      this.closePeer(userId);
-    });
+    if (this.disconnectCleanupTimer) {
+      clearTimeout(this.disconnectCleanupTimer);
+    }
+
+    // Keep existing peer connections alive during transient signaling outages.
+    // WebRTC media can continue flowing while Socket.IO reconnects.
+    this.disconnectCleanupTimer = setTimeout(() => {
+      if (this.destroyed || this.isSocketConnected) {
+        return;
+      }
+
+      this.peerReconnectAttempts.clear();
+      Array.from(this.peers.keys()).forEach((userId) => {
+        this.closePeer(userId);
+      });
+    }, 15000);
+  }
+
+  async resumeAudioContext() {
+    try {
+      if (this.audioContext && this.audioContext.state === "suspended") {
+        await this.audioContext.resume();
+      }
+    } catch (err) {
+      console.warn("[VoiceSystem] Failed to resume audio context:", err);
+    }
   }
 
   setMuted(nextMuted) {
@@ -218,6 +249,7 @@ export class VoiceSystem {
   enableRemoteAudioWithGesture() {
     // Call this from a user gesture (click/tap) to unmute remote audio
     // This bypasses browser autoplay policy
+    this.resumeAudioContext();
     document.querySelectorAll('.dc-remote-audio').forEach(audio => {
       if (audio.muted && !this.isDeafened) {
         audio.muted = false;
@@ -236,6 +268,7 @@ export class VoiceSystem {
       audio.volume = 0.8; // Prevent clipping in multi-user scenarios
       audio.play?.().catch(() => {});
     });
+    this.resumeAudioContext();
   }
 
   async initLocalStream() {
@@ -336,6 +369,26 @@ export class VoiceSystem {
 
   setupSocketListeners() {
     this.socket.on("connect", this.handleSocketConnect);
+    this.socket.on("reconnect", () => {
+      if (this.destroyed) return;
+      console.log("[VoiceSystem] Socket reconnected");
+      this.handleSocketConnect();
+    });
+
+    this.socket.on("reconnect_attempt", (attempt) => {
+      if (this.destroyed) return;
+      console.log(`[VoiceSystem] Socket reconnect attempt ${attempt}`);
+    });
+
+    this.socket.on("reconnect_error", (err) => {
+      if (this.destroyed) return;
+      console.warn("[VoiceSystem] Socket reconnect error:", err?.message || err);
+    });
+
+    this.socket.on("connect_error", (err) => {
+      if (this.destroyed) return;
+      console.warn("[VoiceSystem] Socket connection error:", err?.message || err);
+    });
 
     this.socket.on("peer-joined", async ({ userId, role }) => {
       const selfId = this.socket?.id || this.currentUserId;
@@ -711,6 +764,11 @@ export class VoiceSystem {
 
   destroy() {
     console.log("[VoiceSystem] Destroying voice system");
+
+    if (this.disconnectCleanupTimer) {
+      clearTimeout(this.disconnectCleanupTimer);
+      this.disconnectCleanupTimer = null;
+    }
     
     // Clear all timeouts
     this.peerConnectivityTimeout.forEach(timeoutId => clearTimeout(timeoutId));
