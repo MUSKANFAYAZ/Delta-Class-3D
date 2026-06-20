@@ -527,14 +527,14 @@ export class VoiceSystem {
 
   handleVoiceRelayStart(payload = {}) {
     const speakerId = String(payload.speakerId || "").trim();
-    if (!speakerId) return;
+    if (!speakerId || speakerId === String(this.socket?.id || this.currentUserId || "")) return;
     this.ensureRelaySpeakerPlayback(speakerId, payload);
   }
 
   handleVoiceRelayChunk(payload = {}) {
     const speakerId = String(payload.speakerId || "").trim();
     const chunk = payload.chunk;
-    if (!speakerId || !chunk) return;
+    if (!speakerId || !chunk || speakerId === String(this.socket?.id || this.currentUserId || "")) return;
 
     const entry = this.ensureRelaySpeakerPlayback(speakerId, payload);
     if (!entry) return;
@@ -586,7 +586,7 @@ export class VoiceSystem {
 
   handleVoiceRelayStop(payload = {}) {
     const speakerId = String(payload.speakerId || "").trim();
-    if (!speakerId) return;
+    if (!speakerId || speakerId === String(this.socket?.id || this.currentUserId || "")) return;
 
     const entry = this.voiceRelayRemotePlayers.get(speakerId);
     if (!entry) return;

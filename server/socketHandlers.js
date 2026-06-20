@@ -558,7 +558,7 @@ module.exports = function attachSocketHandlers(io, deps) {
           };
 
           relaySpeakers.set(speakerId, nextState);
-          io.to(roomCode).emit("voice-relay-start", nextState);
+          socket.broadcast.to(roomCode).emit("voice-relay-start", nextState);
           broadcastVoiceRelayState(roomCode, activeSession);
         } catch (err) {
           console.error("voice-relay-start error:", err);
@@ -589,7 +589,7 @@ module.exports = function attachSocketHandlers(io, deps) {
           currentState.updatedAt = Date.now();
           relaySpeakers.set(speakerId, currentState);
 
-          io.to(roomCode).emit("voice-relay-chunk", {
+          socket.broadcast.to(roomCode).emit("voice-relay-chunk", {
             speakerId,
             role: currentState.role,
             displayName: currentState.displayName,
@@ -609,7 +609,7 @@ module.exports = function attachSocketHandlers(io, deps) {
           const speakerId = socket.id;
           if (relaySpeakers.has(speakerId)) {
             relaySpeakers.delete(speakerId);
-            io.to(roomCode).emit("voice-relay-stop", {
+            socket.broadcast.to(roomCode).emit("voice-relay-stop", {
               speakerId,
               reason: String(payload.reason || "stopped"),
             });
