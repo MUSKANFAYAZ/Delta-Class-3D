@@ -263,8 +263,58 @@ async function startSocketClassroom({ role, roomCode }) {
 
     const onError = (error) => {
       cleanup();
-      try { socket.disconnect(); } catch {}
-      reject(error || new Error("Socket connection failed"));
+      // If this error looks like a parser/transport issue, attempt a polling-only fallback once
+      (async () => {
+        try {
+          const msg = String(error?.message || "").toLowerCase();
+          if (/parse error|parser error/.test(msg)) {
+            console.warn('[socket] Parse error detected, retrying with polling-only transport');
+            try { socket.disconnect(); } catch {}
+            const { io: ioFallback } = await loadSocketClientModule();
+            const fallback = ioFallback({
+              path: "/socket.io",
+              transports: ["polling"],
+              auth: { role, roomCode, token: getToken(), displayName: localStorage.getItem("delta-user-display") || "" },
+              query: { role, roomCode, token: getToken() },
+              reconnection: true,
+              reconnectionAttempts: Infinity,
+              reconnectionDelay: 500,
+              reconnectionDelayMax: 4000,
+              timeout: 20000,
+            });
+
+            const fallbackCleanup = () => {
+              fallback.off('connect', onFallbackConnect);
+              fallback.off('connect_error', onFallbackError);
+            };
+
+            const onFallbackConnect = () => {
+              fallbackCleanup();
+              startClassroom(fallback, role, {
+                canWriteBlackboard: role === "teacher",
+                lowBandwidth: isLowBandwidthConnection(),
+                strictLowBandwidth: isLowBandwidthConnection(),
+              });
+              resolve({ socket: fallback });
+            };
+
+            const onFallbackError = (err) => {
+              fallbackCleanup();
+              try { fallback.disconnect(); } catch {}
+              reject(err || new Error('Socket fallback failed'));
+            };
+
+            fallback.on('connect', onFallbackConnect);
+            fallback.on('connect_error', onFallbackError);
+            return;
+          }
+        } catch (e) {
+          // ignore fallback errors and continue to reject
+        }
+
+        try { socket.disconnect(); } catch {}
+        reject(error || new Error("Socket connection failed"));
+      })();
     };
 
     socket.on("connect", onConnect);
@@ -305,8 +355,55 @@ async function startRoomSocketOnly({ role, roomCode }) {
 
     const onError = (error) => {
       cleanup();
-      try { socket.disconnect(); } catch {}
-      reject(error || new Error("Socket connection failed"));
+      (async () => {
+        try {
+          const msg = String(error?.message || "").toLowerCase();
+          if (/parse error|parser error/.test(msg)) {
+            console.warn('[socket] Parse error detected (room socket), retrying with polling-only transport');
+            try { socket.disconnect(); } catch {}
+            const { io: ioFallback } = await loadSocketClientModule();
+            const fallback = ioFallback({
+              path: "/socket.io",
+              transports: ["polling"],
+              auth: {
+                role,
+                roomCode,
+                token: getToken(),
+                displayName: localStorage.getItem("delta-user-display") || "",
+              },
+              query: { role, roomCode, token: getToken() },
+              reconnection: true,
+              reconnectionAttempts: Infinity,
+              reconnectionDelay: 500,
+              reconnectionDelayMax: 4000,
+              timeout: 20000,
+            });
+
+            const fallbackCleanup = () => {
+              fallback.off('connect', onFallbackConnect);
+              fallback.off('connect_error', onFallbackError);
+            };
+
+            const onFallbackConnect = () => {
+              fallbackCleanup();
+              resolve({ socket: fallback });
+            };
+
+            const onFallbackError = (err) => {
+              fallbackCleanup();
+              try { fallback.disconnect(); } catch {}
+              reject(err || new Error('Socket fallback failed'));
+            };
+
+            fallback.on('connect', onFallbackConnect);
+            fallback.on('connect_error', onFallbackError);
+            return;
+          }
+        } catch (e) {}
+
+        try { socket.disconnect(); } catch {}
+        reject(error || new Error("Socket connection failed"));
+      })();
     };
 
     socket.on("connect", onConnect);

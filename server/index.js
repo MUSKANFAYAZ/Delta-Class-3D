@@ -44,6 +44,12 @@ const io = new Server(server, {
     origin: "*",
     methods: ["GET", "POST"],
   },
+  // Increase buffer size to allow larger binary frames (voice chunks)
+  // Default may be too small for some recorder chunks and cause parser errors
+  maxHttpBufferSize: 10 * 1024 * 1024, // 10 MB
+  // Tune ping/pong timeouts if your hosting provider terminates idle websockets
+  pingInterval: 25000,
+  pingTimeout: 60000,
 });
 
 const clientBuildPath = path.join(__dirname, "../client/dist");
