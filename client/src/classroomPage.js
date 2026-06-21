@@ -15,6 +15,7 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
         </div>
         <div class="dc-topbar-actions">
           <span id="connection-badge" class="connection">Starting</span>
+          ${role === "teacher" ? `<span id="voice-relay-status" style="margin-left:10px; padding:4px 8px; border-radius:999px; font-size:0.78rem; font-weight:700; background:#e5e7eb; color:#374151;">Voice relay: unknown</span>` : ``}
           <div class="voice-controls item-group dc-room-voice-controls">
             ${role === "student" ? `
                 <button id="raise-hand-button" type="button" class="dc-btn dc-btn-ghost dc-icon-btn dc-room-icon-btn" data-tooltip="Raise Hand" aria-label="Raise your hand">
@@ -181,6 +182,35 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
       ? list.map((participant) => `<li>${String(participant.displayName || participant.userId || "Unknown")}</li>`).join("")
       : "<li>No participants yet</li>";
   };
+
+  // Voice relay status indicator (teacher only)
+  const voiceRelayStatusEl = document.getElementById("voice-relay-status");
+  if (voiceRelayStatusEl) {
+    const setVoiceRelayStatus = (s) => {
+      const status = String((s && s.status) || s || "unknown").toLowerCase();
+      if (status === "healthy") {
+        voiceRelayStatusEl.textContent = "Voice relay: healthy";
+        voiceRelayStatusEl.style.background = "#dcfce7";
+        voiceRelayStatusEl.style.color = "#065f46";
+      } else if (status === "restarting") {
+        voiceRelayStatusEl.textContent = "Voice relay: restarting";
+        voiceRelayStatusEl.style.background = "#fff7ed";
+        voiceRelayStatusEl.style.color = "#92400e";
+      } else if (status === "stopped") {
+        voiceRelayStatusEl.textContent = "Voice relay: stopped";
+        voiceRelayStatusEl.style.background = "#f3f4f6";
+        voiceRelayStatusEl.style.color = "#374151";
+      } else {
+        voiceRelayStatusEl.textContent = "Voice relay: unknown";
+        voiceRelayStatusEl.style.background = "#e5e7eb";
+        voiceRelayStatusEl.style.color = "#374151";
+      }
+    };
+
+    window.addEventListener('voice-relay-status', (ev) => {
+      try { setVoiceRelayStatus(ev && ev.detail ? ev.detail : ev); } catch (e) {}
+    });
+  }
 
   const updatePendingRequestsUI = (requests) => {
     const list = Array.isArray(requests) ? requests : [];

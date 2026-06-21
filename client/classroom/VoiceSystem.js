@@ -19,6 +19,7 @@ export class VoiceSystem {
     this.useServerVoiceRelay = true;
     this.voiceRelayMimeType = "audio/webm;codecs=opus";
     this.voiceRelayBitrate = 16000;
+    this.voiceRelayHealthTimer = null;
     
     // Voice state
     this.isMuted = this.currentRole === "teacher" ? false : true;
@@ -129,6 +130,8 @@ export class VoiceSystem {
     this.resumeAudioContext();
     this.refreshRemoteAudioElements();
     this.syncVoiceRelayState();
+    // Ensure relay recorder stays running after reconnects
+    this.startVoiceRelayHealthCheck();
   }
 
   handleSocketDisconnect(reason) {
@@ -139,6 +142,9 @@ export class VoiceSystem {
     console.log("[VoiceSystem] Socket disconnected", reason || "");
     this.isSocketConnected = false;
     this.stopVoiceRelay(reason || "socket-disconnect");
+
+    // Stop health checks while disconnected
+    this.stopVoiceRelayHealthCheck();
 
     if (this.disconnectCleanupTimer) {
       clearTimeout(this.disconnectCleanupTimer);
@@ -360,6 +366,19 @@ export class VoiceSystem {
 
       recorder.onerror = (event) => {
         console.warn("[VoiceSystem] Voice relay recorder error:", event?.error || event);
+        // Emit status event for UI
+        try { window.dispatchEvent(new CustomEvent('voice-relay-status', { detail: { status: 'restarting', reason: (event?.error && String(event.error)) || 'recorder-error' } })); } catch (e) {}
+        // Attempt a quick automatic restart of the recorder when possible
+        try {
+          setTimeout(() => {
+            if (this.destroyed || this.isMuted || !this.localStream || !this.socket?.connected) return;
+            const existing = this.voiceRelayRecorders.get("local");
+            const inactive = !existing || (existing && existing.state === "inactive");
+            if (inactive) {
+              this.startVoiceRelay().catch(() => {});
+            }
+          }, 700);
+        } catch (e) {}
       };
 
       recorder.onstop = () => {
@@ -369,9 +388,11 @@ export class VoiceSystem {
       await this.emitVoiceRelayStart();
       recorder.start(220);
       console.log("[VoiceSystem] Server voice relay started");
+      try { window.dispatchEvent(new CustomEvent('voice-relay-status', { detail: { status: 'healthy' } })); } catch (e) {}
     } catch (err) {
       this.voiceRelayRecorders.delete("local");
       console.warn("[VoiceSystem] Failed to start voice relay:", err);
+      try { window.dispatchEvent(new CustomEvent('voice-relay-status', { detail: { status: 'stopped', reason: String(err || '') } })); } catch (e) {}
     }
   }
 
@@ -394,6 +415,7 @@ export class VoiceSystem {
         console.warn("[VoiceSystem] Failed to announce voice relay stop:", err);
       }
     }
+    try { window.dispatchEvent(new CustomEvent('voice-relay-status', { detail: { status: 'stopped', reason } })); } catch (e) {}
   }
 
   syncVoiceRelayState() {
@@ -403,6 +425,31 @@ export class VoiceSystem {
     }
 
     this.startVoiceRelay();
+  }
+
+  startVoiceRelayHealthCheck(intervalMs = 4000) {
+    try {
+      if (this.voiceRelayHealthTimer) return;
+      this.voiceRelayHealthTimer = setInterval(() => {
+        try {
+          if (this.destroyed || this.isMuted || !this.localStream || !this.socket?.connected) return;
+          const recorder = this.voiceRelayRecorders.get("local");
+          const needStart = !recorder || (recorder && recorder.state === "inactive");
+          if (needStart) {
+            this.startVoiceRelay().catch(() => {});
+          }
+        } catch (e) {}
+      }, Number(intervalMs) || 4000);
+    } catch (e) {}
+  }
+
+  stopVoiceRelayHealthCheck() {
+    try {
+      if (this.voiceRelayHealthTimer) {
+        clearInterval(this.voiceRelayHealthTimer);
+        this.voiceRelayHealthTimer = null;
+      }
+    } catch (e) {}
   }
 
   attachAudioBoost(audioElement, speakerRole = "student") {
@@ -755,6 +802,7 @@ export class VoiceSystem {
       
       this.refreshRemoteAudioElements();
       this.syncVoiceRelayState();
+      this.startVoiceRelayHealthCheck();
       console.log("[VoiceSystem] Local stream initialized successfully");
       this.requestExistingPeers();
       return true;
@@ -1266,6 +1314,8 @@ export class VoiceSystem {
     this.peerConnectivityTimeout.clear();
 
     this.handleSocketDisconnect("destroy");
+    // Stop health checks
+    try { this.stopVoiceRelayHealthCheck(); } catch (e) {}
     this.destroyed = true;
     
     // Close all peer connections
