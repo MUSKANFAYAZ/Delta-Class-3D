@@ -499,9 +499,24 @@ export class VoiceSystem {
       fallbackAudio.playsInline = true;
       fallbackAudio.volume = 1.0;
       fallbackAudio.muted = this.isDeafened;
-      fallbackAudio.play().catch(() => {}).finally(() => {
-        URL.revokeObjectURL(objectUrl);
-      });
+
+      const cleanup = () => {
+        try {
+          URL.revokeObjectURL(objectUrl);
+        } catch (err) {
+          console.warn(`[VoiceSystem] Failed to revoke relay object URL for ${speakerId}:`, err);
+        }
+      };
+
+      fallbackAudio.onended = cleanup;
+      fallbackAudio.onerror = () => {
+        cleanup();
+      };
+      fallbackAudio.onpause = () => {
+        cleanup();
+      };
+
+      fallbackAudio.play().catch(() => {});
     } catch (err) {
       console.warn(`[VoiceSystem] Fallback relay playback failed for ${speakerId}:`, err);
     }
@@ -716,7 +731,7 @@ export class VoiceSystem {
     const chunk = payload.chunk;
     if (!speakerId || !chunk || speakerId === String(this.socket?.id || this.currentUserId || "")) return;
 
-    const entry = this.ensureRelaySpeakerPlayback(speakerId, payload);
+    let entry = this.ensureRelaySpeakerPlayback(speakerId, payload);
     if (!entry) return;
 
     const buffer = chunk instanceof ArrayBuffer
