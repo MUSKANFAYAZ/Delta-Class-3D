@@ -607,6 +607,16 @@ async function renderRoute() {
     cleanupActiveClassroomConnection();
   }
 
+  // Cleanup discussion page listeners when leaving discussion
+  if (path !== "/group-discussion" && typeof window.currentDiscussionCleanup === "function") {
+    try {
+      window.currentDiscussionCleanup();
+      window.currentDiscussionCleanup = null;
+    } catch (e) {
+      console.warn("Failed to cleanup discussion listeners:", e);
+    }
+  }
+
   const role = getRouteRole(params);
   const mode = params.get("mode") === "signup" ? "signup" : params.get("mode") === "login" ? "login" : "";
   const next = String(params.get("next") || "").trim();
@@ -1030,6 +1040,15 @@ async function renderRoute() {
     if (!roomCode) {
       navigate(`/dashboard?role=${routeRole}`);
       return;
+    }
+
+    // Stop voice relay when entering discussion to avoid resource conflicts
+    if (window.activeVoiceSystem && typeof window.activeVoiceSystem.stopVoiceRelay === "function") {
+      try {
+        window.activeVoiceSystem.stopVoiceRelay("entering-discussion");
+      } catch (e) {
+        console.warn("Failed to stop voice relay on discussion entry:", e);
+      }
     }
 
     const { mountRoomToolPage } = await import("./features/dashboard/groupDiscussionPage.js");

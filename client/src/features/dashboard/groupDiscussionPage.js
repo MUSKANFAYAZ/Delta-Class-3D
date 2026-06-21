@@ -555,6 +555,45 @@ export function mountRoomToolPage(root, { role = "student", roomCode = "", api, 
 
   removeImageButton?.addEventListener("click", () => clearImagePreview());
 
+  // Store listeners for cleanup
+  const discussionListeners = [];
+
+  if (socket) {
+    // Register listeners for cleanup
+    discussionListeners.push({ event: "discussion-state", fn: arguments.callee });
+    discussionListeners.push({ event: "discussion-update", fn: arguments.callee });
+    discussionListeners.push({ event: "discussion-poll-update", fn: arguments.callee });
+    discussionListeners.push({ event: "discussion-poll-delete", fn: arguments.callee });
+    discussionListeners.push({ event: "discussion-delete", fn: arguments.callee });
+    discussionListeners.push({ event: "participants-state", fn: arguments.callee });
+  }
+
+  // Cleanup function to remove all listeners when leaving page
+  const cleanupDiscussionListeners = () => {
+    if (socket) {
+      socket.off("discussion-state");
+      socket.off("discussion-update");
+      socket.off("discussion-poll-update");
+      socket.off("discussion-poll-delete");
+      socket.off("discussion-delete");
+      socket.off("participants-state");
+    }
+  };
+
+  // Store cleanup function on window for access from main.js
+  window.currentDiscussionCleanup = cleanupDiscussionListeners;
+
+  // Handle back button - cleanup listeners before navigating
+  const originalBackHandler = backButton?.onclick;
+  backButton?.addEventListener("click", (e) => {
+    cleanupDiscussionListeners();
+  });
+
+  // Handle dashboard button - cleanup listeners before navigating
+  dashboardButton?.addEventListener("click", (e) => {
+    cleanupDiscussionListeners();
+  });
+
   renderFeed();
   renderPolls();
   renderParticipants([]);

@@ -1356,9 +1356,17 @@ export class VoiceSystem {
 
     this.voiceRelayRemotePlayers.forEach((entry) => {
       try {
-        entry.audio?.pause?.();
+        if (entry.audio) {
+          entry.audio.pause();
+          entry.audio.srcObject = null;
+          if (entry.objectUrl) {
+            URL.revokeObjectURL(entry.objectUrl);
+            entry.objectUrl = null;
+          }
+          entry.audio.remove();
+        }
       } catch (err) {
-        console.warn("[VoiceSystem] Error pausing relay audio during destroy:", err);
+        console.warn("[VoiceSystem] Error cleaning up relay audio during destroy:", err);
       }
     });
     this.voiceRelayRemotePlayers.clear();
