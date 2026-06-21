@@ -9,6 +9,8 @@ function isStrictLowBandwidthConnection() {
   return Boolean(connection?.saveData) || networkType === "slow-2g" || networkType === "2g";
 }
 
+import { socketTransports } from "../socketTransport.js";
+
 async function loadSocketClientModule() {
   return import("socket.io-client");
 }
@@ -74,8 +76,7 @@ export function createClassroomLoader({
         // Helper to create a fresh socket instance (used for forced clean reconnects)
         const createSocket = () => io({
           path: "/socket.io",
-          // Prefer websocket first but keep polling as a fallback so reconnect can recover after idle tab/background throttling.
-          transports: ["websocket", "polling"],
+          transports: socketTransports,
           auth: {
             role,
             roomCode,

@@ -1,6 +1,7 @@
 import "./styles.css";
 import { registerServiceWorker } from "./startup/registerServiceWorker.js";
 import { showConfirmDialog, showAlertDialog } from "./utils/dialogs.js";
+import { socketTransports } from "./socketTransport.js";
 
 registerServiceWorker();
 
@@ -191,7 +192,7 @@ async function startSocketClassroom({ role, roomCode }) {
 
   const socket = io({
     path: "/socket.io",
-    transports: ["websocket", "polling"],
+    transports: socketTransports,
     auth: { role, roomCode, token: getToken(), displayName: localStorage.getItem("delta-user-display") || "" },
     query: { role, roomCode, token: getToken() },
     reconnection: true,
@@ -327,7 +328,7 @@ async function startRoomSocketOnly({ role, roomCode }) {
   const { io } = await loadSocketClientModule();
   const socket = io({
     path: "/socket.io",
-    transports: ["websocket", "polling"],
+    transports: socketTransports,
     auth: {
       role,
       roomCode,
