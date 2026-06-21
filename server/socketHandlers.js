@@ -529,8 +529,9 @@ module.exports = function attachSocketHandlers(io, deps) {
           const roomSocketIds = Array.from(io.sockets.adapter.rooms.get(roomCode) || []);
           for (const roomSocketId of roomSocketIds) {
             if (activeSession.teacherSocketIds.has(roomSocketId)) continue;
-            io.to(roomSocketId).emit("room-error", { message: classEndedMessage });
-            io.sockets.sockets.get(roomSocketId)?.disconnect(true);
+            // Notify clients that the class has ended; do not forcefully disconnect sockets.
+            // Clients will show a modal and navigate back to dashboard as needed.
+            io.to(roomSocketId).emit("class-ended", { message: classEndedMessage });
           }
         }
 
@@ -860,7 +861,8 @@ module.exports = function attachSocketHandlers(io, deps) {
     } catch (error) {
       console.error("Socket connection error:", error);
       socket.emit("room-error", { message: "Error connecting to room" });
-      socket.disconnect(true);
+      // Avoid force-closing the socket here so clients can present the error and clean up gracefully.
+      // Previously we forced a server-side disconnect which caused 'io server disconnect' on clients.
     }
   });
 };
