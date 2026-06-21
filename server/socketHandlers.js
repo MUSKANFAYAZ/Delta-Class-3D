@@ -524,6 +524,14 @@ module.exports = function attachSocketHandlers(io, deps) {
 
         if (role === "teacher" && activeSession.teacherSocketIds.size === 0) {
           activeSession.teacherPresent = false;
+
+          const classEndedMessage = "Class has ended by teacher.";
+          const roomSocketIds = Array.from(io.sockets.adapter.rooms.get(roomCode) || []);
+          for (const roomSocketId of roomSocketIds) {
+            if (activeSession.teacherSocketIds.has(roomSocketId)) continue;
+            io.to(roomSocketId).emit("room-error", { message: classEndedMessage });
+            io.sockets.sockets.get(roomSocketId)?.disconnect(true);
+          }
         }
 
         if (
@@ -758,9 +766,40 @@ module.exports = function attachSocketHandlers(io, deps) {
           const senderIsTeacher = activeSession.teacherSocketIds.has(socket.id);
           const senderIsStudent = role === "student";
           if (senderIsTeacher) {
-            if (userId) {
-              activeSession.raiseHands.delete(userId);
-              io.to(userId).emit("raise-hand-cleared", { userId });
+            const targetId = String(userId || "").trim();
+            if (targetId) {
+              const roomSocketIds = Array.from(io.sockets.adapter.rooms.get(roomCode) || []);
+              const targetSocketIds = new Set();
+
+              // Support both socket ID targets and authenticated user ID targets.
+              if (roomSocketIds.includes(targetId)) {
+                targetSocketIds.add(targetId);
+              }
+
+              for (const socketId of roomSocketIds) {
+                const roomSocket = io.sockets.sockets.get(socketId);
+                const roomUserId = String(roomSocket?.data?.userId || "").trim();
+                if (roomUserId && roomUserId === targetId) {
+                  targetSocketIds.add(socketId);
+                }
+              }
+
+              // Fallback: keep previous behavior if no mapping found.
+              if (targetSocketIds.size === 0) {
+                targetSocketIds.add(targetId);
+              }
+
+              for (const targetSocketId of targetSocketIds) {
+                activeSession.raiseHands.delete(targetSocketId);
+                io.to(targetSocketId).emit("raise-hand-cleared", {
+                  userId: targetSocketId,
+                  reason: "teacher-clear",
+                });
+                io.to(roomCode).emit("raise-hand-cleared", {
+                  userId: targetSocketId,
+                  reason: "teacher-clear",
+                });
+              }
             }
           } else if (senderIsStudent && userId === socket.id) {
             activeSession.raiseHands.delete(socket.id);

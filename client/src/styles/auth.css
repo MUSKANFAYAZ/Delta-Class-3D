@@ -155,6 +155,21 @@
   font-weight: 700;
 }
 
+.dc-password-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.dc-password-row .dc-input {
+  flex: 1;
+}
+
+.dc-password-toggle {
+  min-width: 72px;
+  white-space: nowrap;
+}
+
 
 
 .dc-hidden {

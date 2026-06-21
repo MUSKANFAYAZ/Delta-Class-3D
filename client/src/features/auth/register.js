@@ -69,6 +69,28 @@ function createPhoneFields(defaultCountryCode = "+91") {
   };
 }
 
+function createPasswordField(input, { id, autocomplete = "new-password" } = {}) {
+  if (id) input.id = id;
+  input.type = "password";
+  if (autocomplete) input.autocomplete = autocomplete;
+
+  const toggle = el("button", {
+    type: "button",
+    class: "dc-btn dc-btn-ghost dc-password-toggle",
+    text: "Show",
+    "aria-label": "Show password",
+  });
+
+  toggle.addEventListener("click", () => {
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    toggle.textContent = show ? "Hide" : "Show";
+    toggle.setAttribute("aria-label", show ? "Hide password" : "Show password");
+  });
+
+  return el("div", { class: "dc-password-row" }, [input, toggle]);
+}
+
 function isValidPhoneWithCode(phone) {
   return /^\+\d{1,3}\d{10}$/.test(phone);
 }
@@ -267,16 +289,10 @@ export function mountRegister(root, { api, onDone, onGoLogin, role = "student", 
 
 
       el("label", { class: "dc-field-label", for: "dc-reg-pass", text: "Password" }),
-      (() => {
-        password.id = "dc-reg-pass";
-        return password;
-      })(),
+      createPasswordField(password, { id: "dc-reg-pass", autocomplete: "new-password" }),
 
       el("label", { class: "dc-field-label", for: "dc-reg-confirm", text: "Confirm password" }),
-      (() => {
-        confirmPassword.id = "dc-reg-confirm";
-        return confirmPassword;
-      })(),
+      createPasswordField(confirmPassword, { id: "dc-reg-confirm", autocomplete: "new-password" }),
 
       status,
       el("div", { class: "dc-auth-actions dc-auth-actions-row" }, [

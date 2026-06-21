@@ -50,14 +50,21 @@ export function mountRoomToolPage(root, { role = "student", roomCode = "", api, 
           <div class="dc-discussion-card">
             <h2>Create poll</h2>
             <input id="dc-poll-question" class="dc-input dc-discussion-input" placeholder="Poll question" />
-            <textarea id="dc-poll-options" class="dc-input dc-discussion-input" rows="4" placeholder="Enter each option on a new line"></textarea>
+            <div id="dc-poll-options-wrap" class="dc-discussion-poll-options-wrap" aria-live="polite"></div>
+            <div style="display:flex;gap:8px;margin-top:8px;">
+              <button type="button" class="dc-btn dc-btn-ghost" id="dc-add-poll-option">Add option</button>
+            </div>
             <button type="button" class="dc-btn dc-btn-secondary" id="dc-create-poll">Create poll</button>
           </div>
 
           <div class="dc-discussion-card">
             <h2>Share image</h2>
             <input type="file" id="dc-image-input" accept="image/*" class="dc-input dc-discussion-input" />
-            <button type="button" class="dc-btn dc-btn-secondary" id="dc-send-image">Send image</button>
+            <div id="dc-image-preview" class="dc-discussion-image-preview" aria-live="polite" style="margin-top:8px;"></div>
+            <div style="display:flex;gap:8px;margin-top:8px;">
+              <button type="button" class="dc-btn dc-btn-secondary" id="dc-send-image">Send image</button>
+              <button type="button" class="dc-btn dc-btn-ghost" id="dc-remove-image">Remove image</button>
+            </div>
           </div>
         </article>
 
@@ -86,10 +93,98 @@ export function mountRoomToolPage(root, { role = "student", roomCode = "", api, 
   const messageForm = wrap.querySelector("#dc-message-form");
   const messageInput = wrap.querySelector("#dc-message-input");
   const pollQuestionInput = wrap.querySelector("#dc-poll-question");
-  const pollOptionsInput = wrap.querySelector("#dc-poll-options");
+  const pollOptionsWrap = wrap.querySelector("#dc-poll-options-wrap");
+  const addPollOptionButton = wrap.querySelector("#dc-add-poll-option");
   const createPollButton = wrap.querySelector("#dc-create-poll");
   const imageInput = wrap.querySelector("#dc-image-input");
   const sendImageButton = wrap.querySelector("#dc-send-image");
+  const removeImageButton = wrap.querySelector("#dc-remove-image");
+  const imagePreviewWrap = wrap.querySelector("#dc-image-preview");
+
+  // Poll option helpers
+  const minPollOptions = 2;
+  function renumberOptions() {
+    const rows = Array.from(pollOptionsWrap.querySelectorAll(".dc-poll-option-row"));
+    rows.forEach((row, i) => {
+      const idx = i + 1;
+      const label = row.querySelector("label");
+      const input = row.querySelector("input.dc-poll-option-input");
+      if (label) label.textContent = `Option ${idx}`;
+      if (input) input.placeholder = `Option ${idx}`;
+      const removeBtn = row.querySelector("button.dc-poll-option-remove");
+      if (removeBtn) removeBtn.disabled = rows.length <= minPollOptions;
+    });
+  }
+
+  function createOptionRow(value = "") {
+    const index = pollOptionsWrap.querySelectorAll(".dc-poll-option-row").length + 1;
+    const row = document.createElement("div");
+    row.className = "dc-poll-option-row";
+    row.style.display = "flex";
+    row.style.alignItems = "center";
+    row.style.gap = "8px";
+
+    const label = document.createElement("label");
+    label.style.minWidth = "72px";
+    label.textContent = `Option ${index}`;
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "dc-input dc-poll-option-input";
+    input.placeholder = `Option ${index}`;
+    input.value = value || "";
+    input.style.flex = "1";
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "dc-btn dc-btn-icon dc-poll-option-remove";
+    removeBtn.textContent = "×";
+    removeBtn.title = "Remove option";
+
+    removeBtn.addEventListener("click", () => {
+      const rows = Array.from(pollOptionsWrap.querySelectorAll(".dc-poll-option-row"));
+      if (rows.length <= minPollOptions) return;
+      row.remove();
+      renumberOptions();
+    });
+
+    input.addEventListener("input", () => {
+      // auto-add a new empty option when typing into the last input
+      const rows = Array.from(pollOptionsWrap.querySelectorAll(".dc-poll-option-input"));
+      const last = rows[rows.length - 1];
+      if (last === input && input.value.trim() !== "") {
+        addPollOption();
+      }
+    });
+
+    row.appendChild(label);
+    row.appendChild(input);
+    row.appendChild(removeBtn);
+    return row;
+  }
+
+  function addPollOption(value = "") {
+    if (!pollOptionsWrap) return;
+    const row = createOptionRow(value);
+    pollOptionsWrap.appendChild(row);
+    renumberOptions();
+    return row;
+  }
+
+  function getPollOptionsValues() {
+    if (!pollOptionsWrap) return [];
+    return Array.from(pollOptionsWrap.querySelectorAll("input.dc-poll-option-input"))
+      .map((i) => String(i.value || "").trim())
+      .filter(Boolean);
+  }
+
+  // initialize with two option rows
+  if (pollOptionsWrap && !pollOptionsWrap.querySelectorAll(".dc-poll-option-row").length) {
+    addPollOption("");
+    addPollOption("");
+  }
+
+  addPollOptionButton?.addEventListener("click", () => addPollOption(""));
   const participantsCount = wrap.querySelector("#dc-participants-count");
   const participantsList = wrap.querySelector("#dc-participants-list");
   const pollsList = wrap.querySelector("#dc-polls-list");
@@ -358,10 +453,7 @@ export function mountRoomToolPage(root, { role = "student", roomCode = "", api, 
 
   createPollButton?.addEventListener("click", async () => {
     const question = String(pollQuestionInput?.value || "").trim();
-    const options = String(pollOptionsInput?.value || "")
-      .split(/\r?\n/g)
-      .map((option) => option.trim())
-      .filter(Boolean);
+    const options = getPollOptionsValues();
     if (!question || options.length < 2) return;
 
     if (socket) {
@@ -371,7 +463,12 @@ export function mountRoomToolPage(root, { role = "student", roomCode = "", api, 
         displayName: localStorage.getItem("delta-user-display") || "",
       });
       pollQuestionInput.value = "";
-      pollOptionsInput.value = "";
+      // reset options to two blank inputs
+      if (pollOptionsWrap) {
+        pollOptionsWrap.innerHTML = "";
+        addPollOption("");
+        addPollOption("");
+      }
       return;
     }
 
@@ -389,7 +486,11 @@ export function mountRoomToolPage(root, { role = "student", roomCode = "", api, 
       console.error("Could not post poll", err);
     }
     pollQuestionInput.value = "";
-    pollOptionsInput.value = "";
+    if (pollOptionsWrap) {
+      pollOptionsWrap.innerHTML = "";
+      addPollOption("");
+      addPollOption("");
+    }
   });
 
   sendImageButton?.addEventListener("click", () => {
@@ -423,6 +524,36 @@ export function mountRoomToolPage(root, { role = "student", roomCode = "", api, 
     };
     reader.readAsDataURL(file);
   });
+  // image preview and remove handlers
+  function clearImagePreview() {
+    if (imagePreviewWrap) imagePreviewWrap.innerHTML = "";
+    if (imageInput) imageInput.value = "";
+  }
+
+  imageInput?.addEventListener("change", () => {
+    if (!imageInput?.files?.length) {
+      clearImagePreview();
+      return;
+    }
+    const file = imageInput.files[0];
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || "");
+      if (!dataUrl.startsWith("data:image/")) return;
+      if (!imagePreviewWrap) return;
+      imagePreviewWrap.innerHTML = `
+        <div class="dc-discussion-image-wrap" style="position:relative">
+          <img src="${escapeHtml(dataUrl)}" alt="${escapeHtml(file.name || "shared image")}" />
+          <button type="button" class="dc-btn dc-btn-icon dc-remove-preview" aria-label="Remove image" style="position:absolute;top:8px;right:8px">×</button>
+        </div>
+      `;
+      const btn = imagePreviewWrap.querySelector(".dc-remove-preview");
+      if (btn) btn.addEventListener("click", clearImagePreview);
+    };
+    reader.readAsDataURL(file);
+  });
+
+  removeImageButton?.addEventListener("click", () => clearImagePreview());
 
   renderFeed();
   renderPolls();

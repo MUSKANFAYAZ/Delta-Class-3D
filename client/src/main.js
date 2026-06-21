@@ -237,6 +237,18 @@ async function startSocketClassroom({ role, roomCode }) {
         return;
       }
 
+      if (/class has ended|ended by teacher|class ended/i.test(message)) {
+        try {
+          socket.disconnect();
+        } catch {}
+        sendStudentBackToDashboard(
+          role,
+          CLASS_ENDED_NOTICE,
+          true,
+        );
+        return;
+      }
+
       if (/session is not started|wait for the teacher|teacher has not joined/i.test(message)) {
         try {
           socket.disconnect();
@@ -633,7 +645,7 @@ async function renderRoute() {
           const socket = window.activeClassroomSocket;
           if (!socket) return;
 
-          const renderRaiseHands = (list) => {
+              const renderRaiseHands = (list) => {
             page.raiseHandList.innerHTML = "";
             (list || []).forEach(entry => {
               const userId = typeof entry === 'string' ? entry : entry.userId;
@@ -652,11 +664,15 @@ async function renderRoute() {
               `;
               const unmuteBtn = li.querySelector('.dc-unmute-btn');
               const clearBtn = li.querySelector('.dc-clear-btn');
+              // Clear button enabled only when student is muted; disabled when unmuted
+              clearBtn.disabled = !isMuted;
               unmuteBtn.addEventListener('click', () => {
                 const nextMuted = li.dataset.muted !== "true";
                 li.dataset.muted = nextMuted ? "true" : "false";
                 unmuteBtn.textContent = nextMuted ? "Unmute" : "Mute";
                 socket.emit('teacher-set-audio-state', { target: userId, muted: nextMuted });
+                // update clear button state: allow clear only when muted
+                if (clearBtn) clearBtn.disabled = !nextMuted;
                 try {
                   if (activeVoiceSystem && typeof activeVoiceSystem.enableRemoteAudioWithGesture === 'function') {
                     activeVoiceSystem.enableRemoteAudioWithGesture();
@@ -681,6 +697,22 @@ async function renderRoute() {
               renderRaiseHands([...current, { userId, displayName, muted: true }]);
             }
             page.setStatus(`${displayName || "Student"} requested microphone access.`, "Mic request", true);
+          });
+
+          // Keep raise-hand UI in sync when audio state changes elsewhere
+          socket.on('audio-state-change', ({ userId, muted } = {}) => {
+            try {
+              const item = page.raiseHandList.querySelector(`[data-user-id="${userId}"]`);
+              if (!item) return;
+              const isMutedNow = Boolean(muted);
+              item.dataset.muted = isMutedNow ? "true" : "false";
+              const unmuteBtn = item.querySelector('.dc-unmute-btn');
+              const clearBtn = item.querySelector('.dc-clear-btn');
+              if (unmuteBtn) unmuteBtn.textContent = isMutedNow ? "Unmute" : "Mute";
+              if (clearBtn) clearBtn.disabled = !isMutedNow;
+            } catch (e) {
+              // non-fatal
+            }
           });
 
           socket.emit('request-raise-hand-list');
@@ -732,6 +764,27 @@ async function renderRoute() {
         activeClassroomSocket = socket;
         window.activeClassroomSocket = socket;
         localStorage.setItem("delta-active-room", roomCode);
+
+        let classEndedHandled = false;
+        const handleClassEnded = async (message) => {
+          if (classEndedHandled) return;
+          classEndedHandled = true;
+          try { socket.disconnect(); } catch {}
+          await showStudentDecisionModal(message || CLASS_ENDED_NOTICE, () => {
+            sendStudentBackToDashboard("student", CLASS_ENDED_NOTICE, true);
+          });
+        };
+
+        socket.on("room-error", (payload = {}) => {
+          const message = String(payload?.message || "");
+          if (/class has ended|ended by teacher|class ended/i.test(message)) {
+            handleClassEnded(CLASS_ENDED_NOTICE);
+            return;
+          }
+          if (/deleted|has been deleted|room does not exist/i.test(message)) {
+            handleClassEnded(typeof message === "string" && message.trim() ? message : "This classroom has been deleted.");
+          }
+        });
         
         // Auto refresh student screen layout natively once approved live by the teacher
         socket.on('admission-approved', (payload = {}) => {

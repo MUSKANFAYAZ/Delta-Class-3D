@@ -69,6 +69,28 @@ function createPhoneFields(defaultCountryCode = "+91") {
   };
 }
 
+function createPasswordField(input, { id, autocomplete = "current-password" } = {}) {
+  if (id) input.id = id;
+  input.type = "password";
+  if (autocomplete) input.autocomplete = autocomplete;
+
+  const toggle = el("button", {
+    type: "button",
+    class: "dc-btn dc-btn-ghost dc-password-toggle",
+    text: "Show",
+    "aria-label": "Show password",
+  });
+
+  toggle.addEventListener("click", () => {
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    toggle.textContent = show ? "Hide" : "Show";
+    toggle.setAttribute("aria-label", show ? "Hide password" : "Show password");
+  });
+
+  return el("div", { class: "dc-password-row" }, [input, toggle]);
+}
+
 function isValidPhoneWithCode(phone) {
   return /^\+\d{1,3}\d{10}$/.test(phone);
 }
@@ -233,10 +255,7 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
         })(),
       ]),
       el("label", { class: "dc-field-label", for: "dc-login-pass", text: "Password" }),
-      (() => {
-        password.id = "dc-login-pass";
-        return password;
-      })(),
+      createPasswordField(password, { id: "dc-login-pass", autocomplete: "current-password" }),
       el("div", { class: "dc-auth-actions dc-auth-actions-row" }, [
         el("button", { type: "button", class: "dc-btn dc-btn-ghost", text: "Forgot password", onclick: () => { view = "reset"; renderBody(); } }),
         el("button", { type: "button", class: "dc-btn dc-btn-ghost", text: "New user? Signup", onclick: () => onGoRegister?.(currentRole || "student") }),
@@ -265,15 +284,9 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
         })(),
       ]),
       el("label", { class: "dc-field-label", for: "dc-reset-new", text: "New password" }),
-      (() => {
-        newPassword.id = "dc-reset-new";
-        return newPassword;
-      })(),
+      createPasswordField(newPassword, { id: "dc-reset-new", autocomplete: "new-password" }),
       el("label", { class: "dc-field-label", for: "dc-reset-confirm", text: "Confirm new password" }),
-      (() => {
-        confirmPassword.id = "dc-reset-confirm";
-        return confirmPassword;
-      })(),
+      createPasswordField(confirmPassword, { id: "dc-reset-confirm", autocomplete: "new-password" }),
       status,
       el("div", { class: "dc-auth-actions dc-auth-actions-row" }, [
         el("button", { type: "button", class: "dc-btn dc-btn-ghost", text: "Back to login", onclick: () => { view = "login"; renderBody(); } }),

@@ -56,8 +56,8 @@ export function mountDashboard(
       <header class="dc-topbar">
         <h1 class="dc-brand">Delta Class 3D</h1>
         <div class="dc-topbar-actions">
-          <button type="button" class="dc-btn dc-btn-secondary" id="dc-create">Create classroom</button>
-          <button type="button" class="dc-btn dc-btn-ghost" id="dc-join">Join classroom</button>
+          ${viewerRole === 'teacher' ? '<button type="button" class="dc-btn dc-btn-secondary" id="dc-create">Create classroom</button>' : ''}
+          ${viewerRole === 'student' ? '<button type="button" class="dc-btn dc-btn-ghost" id="dc-join">Join classroom</button>' : ''}
           <div class="dc-user-wrap">
             <button type="button" class="dc-btn dc-btn-ghost dc-user-trigger" id="dc-login" aria-haspopup="menu" aria-expanded="false">
               ${isLoggedIn ? userName || "Logged in" : "Login"}
@@ -476,39 +476,15 @@ export function mountDashboard(
   }
 
   // --- EVENT LISTENERS ---
-  wrap.querySelector("#dc-create").addEventListener("click", () => {
-    const userRole = localStorage.getItem("delta-user-role") || "student";
-    if (userRole !== "teacher") {
-      const existing = document.getElementById("dc-alert-modal");
-      if (existing) existing.remove();
+  const createBtn = wrap.querySelector("#dc-create");
+  if (createBtn) {
+    createBtn.addEventListener("click", () => onCreateRequested?.());
+  }
 
-      const backdrop = document.createElement("div");
-      backdrop.id = "dc-alert-modal";
-      backdrop.className = "dc-modal-backdrop";
-      backdrop.style.display = "flex";
-      
-      backdrop.innerHTML = `
-        <div class="dc-modal">
-          <h2>Access Denied</h2>
-          <p style="margin: 1rem 0; color: var(--text-secondary);">Only teachers can create classrooms.</p>
-          <div class="dc-modal-actions">
-            <button type="button" class="dc-btn dc-btn-primary" id="dc-alert-ok-btn">OK</button>
-          </div>
-        </div>
-      `;
-      
-      document.body.appendChild(backdrop);
-      
-      const close = () => backdrop.remove();
-      backdrop.querySelector("#dc-alert-ok-btn").addEventListener("click", close);
-      backdrop.addEventListener("click", (e) => {
-        if (e.target === backdrop) close();
-      });
-      return;
-    }
-    onCreateRequested?.();
-  });
-  wrap.querySelector("#dc-join").addEventListener("click", () => onJoinRequested?.());
+  const joinBtn = wrap.querySelector("#dc-join");
+  if (joinBtn) {
+    joinBtn.addEventListener("click", () => onJoinRequested?.());
+  }
 
   const quoteEl = wrap.querySelector("#dc-hero-quote");
   if (quoteEl) {
