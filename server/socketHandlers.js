@@ -72,19 +72,7 @@ module.exports = function attachSocketHandlers(io, deps) {
       mimeType: entry.mimeType,
     }));
 
-    const history = Array.from(getVoiceRelayHistory(activeSession).entries()).map(([speakerId, chunks]) => ({
-      speakerId,
-      chunks: Array.isArray(chunks)
-        ? chunks.map((chunkEntry) => ({
-            sequence: chunkEntry.sequence,
-            timestamp: chunkEntry.timestamp,
-            mimeType: chunkEntry.mimeType,
-            chunk: chunkEntry.chunk,
-          }))
-        : [],
-    }));
-
-    socket.emit("voice-relay-state", { speakers, history });
+    socket.emit("voice-relay-state", { speakers });
   }
 
   function getParticipantRoster(roomCode, activeSession) {
@@ -632,19 +620,6 @@ module.exports = function attachSocketHandlers(io, deps) {
           currentState.displayName = activeSession.userDisplayNames?.get(speakerId) || currentState.displayName || speakerId;
           currentState.updatedAt = Date.now();
           relaySpeakers.set(speakerId, currentState);
-
-          const history = getVoiceRelayHistory(activeSession);
-          const speakerHistory = Array.isArray(history.get(speakerId)) ? history.get(speakerId) : [];
-          speakerHistory.push({
-            sequence: Number(payload.sequence || 0),
-            timestamp: Number(payload.timestamp || Date.now()),
-            mimeType: currentState.mimeType,
-            chunk,
-          });
-          while (speakerHistory.length > 40) {
-            speakerHistory.shift();
-          }
-          history.set(speakerId, speakerHistory);
 
           socket.broadcast.to(roomCode).emit("voice-relay-chunk", {
             speakerId,

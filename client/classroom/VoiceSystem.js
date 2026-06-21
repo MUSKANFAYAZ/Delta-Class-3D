@@ -419,12 +419,23 @@ export class VoiceSystem {
   }
 
   syncVoiceRelayState() {
-    if (this.isMuted || !this.localStream || !this.socket?.connected || this.destroyed) {
-      this.stopVoiceRelay(this.isMuted ? "muted" : "inactive");
+    if (this.destroyed) {
       return;
     }
 
-    this.startVoiceRelay();
+    if (this.isMuted || !this.localStream || !this.socket?.connected) {
+      const reason = this.isMuted ? "muted" : "inactive";
+      const recorder = this.voiceRelayRecorders.get("local");
+      if (recorder && recorder.state !== "inactive") {
+        this.stopVoiceRelay(reason);
+      }
+      return;
+    }
+
+    const recorder = this.voiceRelayRecorders.get("local");
+    if (!recorder || recorder.state === "inactive") {
+      this.startVoiceRelay();
+    }
   }
 
   startVoiceRelayHealthCheck(intervalMs = 4000) {
@@ -705,25 +716,12 @@ export class VoiceSystem {
       this.ensureRelaySpeakerPlayback(speakerId, speaker);
     });
 
-    history.forEach((entry) => {
-      const speakerId = String(entry?.speakerId || "").trim();
-      if (!speakerId || speakerId === String(this.socket?.id || this.currentUserId || "")) {
-        return;
-      }
-
-      const chunks = Array.isArray(entry?.chunks) ? entry.chunks : [];
-      chunks.forEach((chunkEntry) => {
-        this.handleVoiceRelayChunk({
-          speakerId,
-          role: speakers.find((speaker) => String(speaker?.speakerId || "") === speakerId)?.role || "student",
-          displayName: speakers.find((speaker) => String(speaker?.speakerId || "") === speakerId)?.displayName || speakerId,
-          mimeType: chunkEntry?.mimeType || speakers.find((speaker) => String(speaker?.speakerId || "") === speakerId)?.mimeType || this.voiceRelayMimeType,
-          sequence: chunkEntry?.sequence,
-          timestamp: chunkEntry?.timestamp,
-          chunk: chunkEntry?.chunk,
-        });
-      });
-    });
+    // History entries are intentionally ignored to prevent stale buffered voice
+    // from playing when a new participant joins. Only live relay packets should
+    // be played after join.
+    //
+    // If you still want to show active speakers, the speaker list is created above
+    // from the current relay state, but no buffered audio chunks are replayed.
   }
 
   handleVoiceRelayChunk(payload = {}) {
