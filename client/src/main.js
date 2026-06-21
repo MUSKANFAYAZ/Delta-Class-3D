@@ -575,6 +575,18 @@ async function renderRoute() {
       activeClassroomLoader = classroomLoader;
       
       const checkAndInitVoice = async () => {
+        if (window.activeClassroomSocket) {
+          if (activeVoiceSystem && activeVoiceSystem.socket !== window.activeClassroomSocket) {
+            try {
+              activeVoiceSystem.destroy();
+            } catch (e) {
+              console.warn("Voice cleanup err", e);
+            }
+            activeVoiceSystem = null;
+            window.activeVoiceSystem = null;
+          }
+        }
+
         if (window.activeClassroomSocket && !activeVoiceSystem) {
           try {
             const { VoiceSystem } = await import("../classroom/VoiceSystem.js");
@@ -639,12 +651,15 @@ async function renderRoute() {
         }
       };
       
+      let wiredRaiseHandSocket = null;
+
       const initRaiseHandWiring = () => {
         try {
           if (roomRole !== "teacher") return;
           if (!page.raiseHandList) return;
           const socket = window.activeClassroomSocket;
-          if (!socket) return;
+          if (!socket || wiredRaiseHandSocket === socket) return;
+          wiredRaiseHandSocket = socket;
 
               const renderRaiseHands = (list) => {
             page.raiseHandList.innerHTML = "";
@@ -722,6 +737,11 @@ async function renderRoute() {
         }
       };
 
+      window.addEventListener("delta-classroom-socket-ready", () => {
+        checkAndInitVoice();
+        initRaiseHandWiring();
+      });
+
       // --- CRITICAL FIXED IMPLEMENTATION HANDLER BLOCK ---
       // Intercept click event execution chains safely on the purple button element
       page.loadButton.addEventListener("click", (e) => {
@@ -765,6 +785,13 @@ async function renderRoute() {
         activeClassroomSocket = socket;
         window.activeClassroomSocket = socket;
         localStorage.setItem("delta-active-room", roomCode);
+
+        socket.on("connect", () => {
+          window.dispatchEvent(new CustomEvent("delta-classroom-socket-ready", { detail: { socket } }));
+        });
+        if (socket.connected) {
+          window.dispatchEvent(new CustomEvent("delta-classroom-socket-ready", { detail: { socket } }));
+        }
 
         let classEndedHandled = false;
         const handleClassEnded = async (message) => {

@@ -426,12 +426,100 @@ export class VoiceSystem {
     }
   }
 
+  isRelaySourceBufferReady(entry) {
+    if (!entry || entry.stopped) {
+      return false;
+    }
+
+    const { sourceBuffer, mediaSource } = entry;
+    if (!sourceBuffer || !mediaSource || mediaSource.readyState !== "open") {
+      return false;
+    }
+
+    try {
+      return Array.from(mediaSource.sourceBuffers || []).includes(sourceBuffer);
+    } catch {
+      return false;
+    }
+  }
+
+  playRelayChunkFallback(entry, buffer, speakerId = "") {
+    try {
+      const blob = new Blob([buffer], { type: entry?.mimeType || this.voiceRelayMimeType });
+      const objectUrl = URL.createObjectURL(blob);
+      const fallbackAudio = new Audio(objectUrl);
+      fallbackAudio.autoplay = true;
+      fallbackAudio.playsInline = true;
+      fallbackAudio.volume = 1.0;
+      fallbackAudio.muted = this.isDeafened;
+      fallbackAudio.play().catch(() => {}).finally(() => {
+        URL.revokeObjectURL(objectUrl);
+      });
+    } catch (err) {
+      console.warn(`[VoiceSystem] Fallback relay playback failed for ${speakerId}:`, err);
+    }
+  }
+
+  removeRelaySpeakerPlayback(speakerId) {
+    const entry = this.voiceRelayRemotePlayers.get(speakerId);
+    if (!entry) {
+      return;
+    }
+
+    entry.stopped = true;
+    entry.queue.length = 0;
+    entry.sourceBuffer = null;
+
+    try {
+      if (entry.mediaSource && entry.mediaSource.readyState === "open") {
+        try {
+          entry.mediaSource.endOfStream();
+        } catch (err) {
+          console.warn(`[VoiceSystem] Failed to end relay media source for ${speakerId}:`, err);
+        }
+      }
+    } catch (err) {
+      console.warn(`[VoiceSystem] Relay speaker cleanup warning for ${speakerId}:`, err);
+    }
+
+    entry.mediaSource = null;
+
+    if (entry.audio) {
+      try {
+        entry.audio.pause();
+      } catch (err) {
+        console.warn(`[VoiceSystem] Failed to pause relay audio for ${speakerId}:`, err);
+      }
+      entry.audio.srcObject = null;
+      if (entry.objectUrl) {
+        try {
+          URL.revokeObjectURL(entry.objectUrl);
+        } catch (err) {
+          console.warn(`[VoiceSystem] Failed to revoke relay object URL for ${speakerId}:`, err);
+        }
+      }
+      entry.audio.remove();
+    }
+
+    this.voiceRelayRemotePlayers.delete(speakerId);
+    this.remoteAudioSources.delete(`voice-relay-${speakerId}`);
+  }
+
+  resetRelaySpeakerPlayback(speakerId, payload = {}) {
+    this.removeRelaySpeakerPlayback(speakerId);
+    return this.ensureRelaySpeakerPlayback(speakerId, payload);
+  }
+
   ensureRelaySpeakerPlayback(speakerId, payload = {}) {
     if (speakerId === (this.socket?.id || this.currentUserId)) {
       return null;
     }
 
     let entry = this.voiceRelayRemotePlayers.get(speakerId);
+    if (entry?.stopped) {
+      this.removeRelaySpeakerPlayback(speakerId);
+      entry = null;
+    }
     if (entry) {
       if (payload.displayName) entry.displayName = payload.displayName;
       if (payload.mimeType) entry.mimeType = payload.mimeType;
@@ -486,6 +574,9 @@ export class VoiceSystem {
           const sourceBuffer = mediaSource.addSourceBuffer(mimeType);
           sourceBuffer.mode = "sequence";
           sourceBuffer.addEventListener("updateend", () => {
+            if (entry.stopped || this.destroyed) {
+              return;
+            }
             this.flushRelaySpeakerQueue(speakerId);
           });
           entry.sourceBuffer = sourceBuffer;
@@ -507,7 +598,7 @@ export class VoiceSystem {
 
   flushRelaySpeakerQueue(speakerId) {
     const entry = this.voiceRelayRemotePlayers.get(speakerId);
-    if (!entry || !entry.sourceBuffer || entry.sourceBuffer.updating || entry.queue.length === 0) {
+    if (!entry || entry.stopped || !this.isRelaySourceBufferReady(entry) || entry.sourceBuffer.updating || entry.queue.length === 0) {
       return;
     }
 
@@ -522,12 +613,21 @@ export class VoiceSystem {
     } catch (err) {
       console.warn(`[VoiceSystem] Failed to append relay chunk for ${speakerId}:`, err);
       entry.queue.unshift(nextChunk);
+      this.resetRelaySpeakerPlayback(speakerId, {
+        displayName: entry.displayName,
+        mimeType: entry.mimeType,
+        role: entry.role,
+      });
     }
   }
 
   handleVoiceRelayStart(payload = {}) {
     const speakerId = String(payload.speakerId || "").trim();
     if (!speakerId || speakerId === String(this.socket?.id || this.currentUserId || "")) return;
+    const existing = this.voiceRelayRemotePlayers.get(speakerId);
+    if (existing?.stopped) {
+      this.removeRelaySpeakerPlayback(speakerId);
+    }
     this.ensureRelaySpeakerPlayback(speakerId, payload);
   }
 
@@ -581,31 +681,25 @@ export class VoiceSystem {
           : chunk?.buffer;
     if (!buffer) return;
 
-    if (!entry.sourceBuffer) {
-      try {
-        const blob = new Blob([buffer], { type: entry.mimeType || this.voiceRelayMimeType });
-        const objectUrl = URL.createObjectURL(blob);
-        const fallbackAudio = new Audio(objectUrl);
-        fallbackAudio.autoplay = true;
-        fallbackAudio.playsInline = true;
-        fallbackAudio.volume = 1.0;
-        fallbackAudio.muted = this.isDeafened;
-        fallbackAudio.play().catch(() => {}).finally(() => {
-          URL.revokeObjectURL(objectUrl);
-        });
-      } catch (err) {
-        console.warn(`[VoiceSystem] Fallback relay playback failed for ${speakerId}:`, err);
+    if (!this.isRelaySourceBufferReady(entry)) {
+      if (entry.sourceBuffer || entry.mediaSource) {
+        entry = this.resetRelaySpeakerPlayback(speakerId, payload) || entry;
       }
+    }
+
+    if (!this.isRelaySourceBufferReady(entry)) {
+      this.playRelayChunkFallback(entry, buffer, speakerId);
       return;
     }
 
-    if (entry.sourceBuffer && !entry.sourceBuffer.updating) {
+    if (!entry.sourceBuffer.updating) {
       try {
         entry.sourceBuffer.appendBuffer(buffer);
         entry.appendedChunks += 1;
       } catch (err) {
         console.warn(`[VoiceSystem] Failed to append relay chunk for ${speakerId}:`, err);
         entry.queue.push(buffer);
+        this.resetRelaySpeakerPlayback(speakerId, payload);
       }
     } else {
       entry.queue.push(buffer);
@@ -620,52 +714,7 @@ export class VoiceSystem {
   handleVoiceRelayStop(payload = {}) {
     const speakerId = String(payload.speakerId || "").trim();
     if (!speakerId || speakerId === String(this.socket?.id || this.currentUserId || "")) return;
-
-    const entry = this.voiceRelayRemotePlayers.get(speakerId);
-    if (!entry) return;
-
-    entry.stopped = true;
-    entry.queue.length = 0;
-
-    try {
-      if (entry.sourceBuffer?.updating) {
-        try {
-          entry.sourceBuffer.abort();
-        } catch (err) {
-          console.warn(`[VoiceSystem] Failed to abort relay source buffer for ${speakerId}:`, err);
-        }
-      }
-
-      if (entry.mediaSource && entry.mediaSource.readyState === "open") {
-        try {
-          entry.mediaSource.endOfStream();
-        } catch (err) {
-          console.warn(`[VoiceSystem] Failed to end relay media source for ${speakerId}:`, err);
-        }
-      }
-    } catch (err) {
-      console.warn(`[VoiceSystem] Relay speaker cleanup warning for ${speakerId}:`, err);
-    }
-
-    if (entry.audio) {
-      try {
-        entry.audio.pause();
-      } catch (err) {
-        console.warn(`[VoiceSystem] Failed to pause relay audio for ${speakerId}:`, err);
-      }
-      entry.audio.srcObject = null;
-      if (entry.objectUrl) {
-        try {
-          URL.revokeObjectURL(entry.objectUrl);
-        } catch (err) {
-          console.warn(`[VoiceSystem] Failed to revoke relay object URL for ${speakerId}:`, err);
-        }
-      }
-      entry.audio.remove();
-    }
-
-    this.voiceRelayRemotePlayers.delete(speakerId);
-    this.remoteAudioSources.delete(`voice-relay-${speakerId}`);
+    this.removeRelaySpeakerPlayback(speakerId);
   }
 
   async initLocalStream() {

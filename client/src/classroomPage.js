@@ -156,7 +156,8 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
   const classroomQuery = new URLSearchParams((window.location.hash.split("?")[1] || ""));
   const classroomCode = classroomQuery.get("code") || classroomQuery.get("roomCode") || "";
   const raiseHandState = new Map();
-  let raiseHandListenersBound = false;
+  let boundRaiseHandSocket = null;
+  let boundPendingSocket = null;
 
   if (discussionButton && classroomCode) {
     discussionButton.addEventListener("click", () => {
@@ -275,8 +276,10 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
   };
 
   const setupPendingListeners = () => {
-    if (!window.activeClassroomSocket || role !== "teacher") return;
-    window.activeClassroomSocket.on("pending-requests-updated", (data) => {
+    const socket = window.activeClassroomSocket;
+    if (!socket || role !== "teacher" || boundPendingSocket === socket) return;
+    boundPendingSocket = socket;
+    socket.on("pending-requests-updated", (data) => {
       loadPendingRequests();
       if (data?.request) {
         showPendingRequestModal(data.request);
@@ -294,8 +297,9 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
   attachPendingRequestHandlers();
 
   const setupRaiseHandListeners = () => {
-    if (raiseHandListenersBound || role !== "teacher" || !raiseHandList || !window.activeClassroomSocket) return;
-    raiseHandListenersBound = true;
+    const socket = window.activeClassroomSocket;
+    if (role !== "teacher" || !raiseHandList || !socket || boundRaiseHandSocket === socket) return;
+    boundRaiseHandSocket = socket;
 
     const renderRaiseHands = (list) => {      raiseHandList.innerHTML = "";
       (list || []).forEach((entry) => {
@@ -343,11 +347,11 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
       });
     };
 
-    window.activeClassroomSocket.on("raise-hand-list", renderRaiseHands);
-    window.activeClassroomSocket.on("participants-state", ({ participants = [], count } = {}) => {
+    socket.on("raise-hand-list", renderRaiseHands);
+    socket.on("participants-state", ({ participants = [], count } = {}) => {
       renderParticipants(Array.isArray(participants) ? participants : [], count);
     });
-    window.activeClassroomSocket.on("audio-state-change", ({ userId, muted }) => {
+    socket.on("audio-state-change", ({ userId, muted }) => {
       const item = raiseHandList.querySelector(`[data-user-id="${userId}"]`);
       if (!item) return;
       const micBtn = item.querySelector(".dc-mic-toggle-btn");
@@ -359,7 +363,7 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
         ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path></svg><span>Unmute</span>'
         : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path></svg><span>Mute</span>';
     });
-    window.activeClassroomSocket.on("unmute-request", ({ userId, displayName }) => {
+    socket.on("unmute-request", ({ userId, displayName }) => {
       const current = Array.from(raiseHandList.querySelectorAll("li")).map((li) => ({
         userId: li.dataset.userId,
         displayName: li.querySelector(".dc-raise-hand-user")?.textContent || li.dataset.userId,
@@ -372,22 +376,24 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
       connectionBadge.textContent = "Mic request";
     });
 
-    window.activeClassroomSocket.emit("request-raise-hand-list");
-    window.activeClassroomSocket.emit("request-discussion-state");
+    socket.emit("request-raise-hand-list");
+    socket.emit("request-discussion-state");
+  };
+
+  const ensureClassroomSocketBindings = () => {
+    if (role === "teacher") {
+      setupRaiseHandListeners();
+      setupPendingListeners();
+    }
   };
 
   const waitForRaiseHandSocket = () => {
-    if (window.activeClassroomSocket) {
-      setupRaiseHandListeners();
-      if (role === "teacher") {
-        setupPendingListeners();
-      }
-      return;
-    }
+    ensureClassroomSocketBindings();
     setTimeout(waitForRaiseHandSocket, 250);
   };
 
   waitForRaiseHandSocket();
+  window.addEventListener("delta-classroom-socket-ready", ensureClassroomSocketBindings);
 
   const updateRaiseHandToggleButton = (open) => {
     if (!raiseHandToggleButton) return;

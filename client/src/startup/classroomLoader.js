@@ -13,6 +13,14 @@ async function loadSocketClientModule() {
   return import("socket.io-client");
 }
 
+function notifyClassroomSocketReady(socket) {
+  if (!socket || typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent("delta-classroom-socket-ready", { detail: { socket } }));
+}
+
 export function createClassroomLoader({
   loadButton,
   setStatus,
@@ -54,17 +62,13 @@ export function createClassroomLoader({
 
         const [{ io }, { startClassroom }] = await warmup();
 
+        const priorSocket = window.activeClassroomSocket && window.activeClassroomSocket !== activeSocket
+          ? window.activeClassroomSocket
+          : null;
+
         if (activeSocket) {
           activeSocket.disconnect();
           activeSocket = null;
-        }
-        if (window.activeClassroomSocket && window.activeClassroomSocket !== activeSocket) {
-          try {
-            window.activeClassroomSocket.disconnect();
-          } catch {
-            // ignore stale socket cleanup issues
-          }
-          window.activeClassroomSocket = null;
         }
 
         // Helper to create a fresh socket instance (used for forced clean reconnects)
@@ -95,6 +99,16 @@ export function createClassroomLoader({
         let socket = createSocket();
         activeSocket = socket;
         window.activeClassroomSocket = socket;
+
+        const disconnectPriorSocket = () => {
+          if (priorSocket && priorSocket !== socket) {
+            try {
+              priorSocket.disconnect();
+            } catch {
+              // ignore stale socket cleanup issues
+            }
+          }
+        };
 
         const resumeSocket = () => {
           if (activeSocket !== socket) {
@@ -171,6 +185,8 @@ export function createClassroomLoader({
         }
 
         socket.on("connect", () => {
+          disconnectPriorSocket();
+          notifyClassroomSocketReady(socket);
           const elapsedMs = Math.max(0, performance.now() - bootStartedAtMs);
           const elapsedSeconds = (elapsedMs / 1000).toFixed(1);
           setStatus(`Live sync connected in ${elapsedSeconds}s.`, "Connected", true);
