@@ -520,16 +520,17 @@ async function renderRoute() {
     if (roomCode) {
       let isPendingStudent = false;
       let pendingMessage = "";
+      let classroomEntry = null;
 
       if (roomRole === "student") {
         try {
-          const entry = await ensureStudentCanEnterClassroom(roomCode);
-          
-          if (entry.pending) {
+          classroomEntry = await ensureStudentCanEnterClassroom(roomCode);
+
+          if (classroomEntry.pending) {
             isPendingStudent = true;
-            pendingMessage = entry.message || "Join request sent. Wait for teacher approval.";
-          } else if (!entry.ok) {
-            localStorage.setItem("delta-dashboard-notice", entry.message);
+            pendingMessage = classroomEntry.message || "Join request sent. Wait for teacher approval.";
+          } else if (!classroomEntry.ok) {
+            localStorage.setItem("delta-dashboard-notice", classroomEntry.message);
             navigate(`/dashboard?role=student`);
             return;
           }
@@ -744,7 +745,7 @@ async function renderRoute() {
       if (isPendingStudent) {
         page.setStatus(pendingMessage, "Pending");
         showStudentPendingModal(pendingMessage);
-      } else if (entry?.teacherPresent === false) {
+      } else if (classroomEntry?.teacherPresent === false) {
         page.setStatus("You are approved, but the teacher has not joined yet. Please wait or refresh when they arrive.", "Waiting");
       } else {
         page.setStatus("Ready to load the classroom.", "Idle");

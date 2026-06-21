@@ -208,8 +208,8 @@ module.exports = function attachSocketHandlers(io, deps) {
 
       if (role === "student" && !activeSession.teacherPresent) {
         socket.emit("room-error", { message: "Class session is not started yet. Please wait for the teacher to enter the classroom." });
-        socket.disconnect(true);
-        return;
+        // Keep the socket connected so the student can stay in the room and automatically receive updates
+        // when the teacher joins, instead of getting an abrupt 'io server disconnect'.
       }
 
       if (role === "student") {
