@@ -1,9 +1,18 @@
 export class VoiceSystem {
   constructor(socket, currentUserId, currentRole) {
+    if (typeof window !== "undefined" && window.activeVoiceSystem && window.activeVoiceSystem !== this) {
+      try {
+        window.activeVoiceSystem.destroy();
+      } catch (err) {
+        console.warn("[VoiceSystem] Failed to destroy previous instance:", err);
+      }
+    }
+
     this.socket = socket;
     this.currentUserId = currentUserId || socket?.id || null;
     this.currentRole = currentRole; // 'teacher' or 'student'
     this.destroyed = false;
+    this._relayResetAttempts = new Map();
     this.isSocketConnected = Boolean(socket?.connected);
     this.disconnectCleanupTimer = null;
     
@@ -33,12 +42,115 @@ export class VoiceSystem {
 
     this.handleSocketConnect = this.handleSocketConnect.bind(this);
     this.handleSocketDisconnect = this.handleSocketDisconnect.bind(this);
-    
+    this._boundSocketHandlers = [];
+
     this.setupSocketListeners();
+    if (typeof window !== "undefined") {
+      window.activeVoiceSystem = this;
+    }
     if (this.socket.connected && this.socket.id) {
       this.handleSocketConnect();
     }
     this.requestExistingPeers();
+  }
+
+  bindSocketEvent(eventName, handler) {
+    if (!this.socket || typeof handler !== "function") {
+      return handler;
+    }
+    this._boundSocketHandlers.push([eventName, handler]);
+    this.socket.on(eventName, handler);
+    return handler;
+  }
+
+  removeSocketListeners() {
+    if (!this.socket || !Array.isArray(this._boundSocketHandlers)) {
+      return;
+    }
+
+    this._boundSocketHandlers.forEach(([eventName, handler]) => {
+      try {
+        this.socket.off(eventName, handler);
+      } catch (err) {
+        console.warn(`[VoiceSystem] Failed to remove ${eventName} listener:`, err);
+      }
+    });
+    this._boundSocketHandlers.length = 0;
+  }
+
+  async normalizeRelayChunk(chunk) {
+    if (!chunk) {
+      return null;
+    }
+
+    if (chunk instanceof ArrayBuffer) {
+      return chunk;
+    }
+
+    if (ArrayBuffer.isView(chunk)) {
+      return chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength);
+    }
+
+    if (typeof Blob !== "undefined" && chunk instanceof Blob) {
+      return await chunk.arrayBuffer();
+    }
+
+    if (typeof chunk?.arrayBuffer === "function") {
+      return await chunk.arrayBuffer();
+    }
+
+    if (chunk?.type === "Buffer" && Array.isArray(chunk.data)) {
+      return Uint8Array.from(chunk.data).buffer;
+    }
+
+    if (chunk?.buffer instanceof ArrayBuffer) {
+      return chunk.buffer;
+    }
+
+    return null;
+  }
+
+  detachRelayAudioElement(entry) {
+    if (!entry?.audio) {
+      return;
+    }
+
+    const audio = entry.audio;
+    try {
+      audio.pause();
+    } catch (err) {
+      console.warn("[VoiceSystem] Failed to pause relay audio:", err);
+    }
+
+    audio.onended = null;
+    audio.onerror = null;
+    audio.onpause = null;
+    audio.srcObject = null;
+
+    try {
+      audio.removeAttribute("src");
+      audio.src = "";
+      audio.load();
+    } catch (err) {
+      console.warn("[VoiceSystem] Failed to clear relay audio src:", err);
+    }
+
+    if (entry.objectUrl) {
+      try {
+        URL.revokeObjectURL(entry.objectUrl);
+      } catch (err) {
+        console.warn("[VoiceSystem] Failed to revoke relay object URL:", err);
+      }
+      entry.objectUrl = null;
+    }
+
+    try {
+      audio.remove();
+    } catch (err) {
+      console.warn("[VoiceSystem] Failed to remove relay audio element:", err);
+    }
+
+    entry.audio = null;
   }
 
   shouldConnectToPeer(peer) {
@@ -397,6 +509,10 @@ export class VoiceSystem {
   }
 
   stopVoiceRelay(reason = "muted") {
+    if (this.destroyed) {
+      return;
+    }
+
     const recorder = this.voiceRelayRecorders.get("local");
     if (recorder && recorder.state !== "inactive") {
       try {
@@ -502,6 +618,10 @@ export class VoiceSystem {
   }
 
   playRelayChunkFallback(entry, buffer, speakerId = "") {
+    if (this.destroyed) {
+      return;
+    }
+
     try {
       const blob = new Blob([buffer], { type: entry?.mimeType || this.voiceRelayMimeType });
       const objectUrl = URL.createObjectURL(blob);
@@ -510,23 +630,27 @@ export class VoiceSystem {
       fallbackAudio.playsInline = true;
       fallbackAudio.volume = 1.0;
       fallbackAudio.muted = this.isDeafened;
+      fallbackAudio.className = "dc-remote-audio dc-voice-relay-fallback";
 
       const cleanup = () => {
         try {
-          URL.revokeObjectURL(objectUrl);
+          fallbackAudio.pause();
+          fallbackAudio.src = "";
+          fallbackAudio.load();
         } catch (err) {
-          console.warn(`[VoiceSystem] Failed to revoke relay object URL for ${speakerId}:`, err);
+          // ignore
         }
+        window.setTimeout(() => {
+          try {
+            URL.revokeObjectURL(objectUrl);
+          } catch (err) {
+            console.warn(`[VoiceSystem] Failed to revoke relay object URL for ${speakerId}:`, err);
+          }
+        }, 250);
       };
 
       fallbackAudio.onended = cleanup;
-      fallbackAudio.onerror = () => {
-        cleanup();
-      };
-      fallbackAudio.onpause = () => {
-        cleanup();
-      };
-
+      fallbackAudio.onerror = cleanup;
       fallbackAudio.play().catch(() => {});
     } catch (err) {
       console.warn(`[VoiceSystem] Fallback relay playback failed for ${speakerId}:`, err);
@@ -556,29 +680,20 @@ export class VoiceSystem {
     }
 
     entry.mediaSource = null;
-
-    if (entry.audio) {
-      try {
-        entry.audio.pause();
-      } catch (err) {
-        console.warn(`[VoiceSystem] Failed to pause relay audio for ${speakerId}:`, err);
-      }
-      entry.audio.srcObject = null;
-      if (entry.objectUrl) {
-        try {
-          URL.revokeObjectURL(entry.objectUrl);
-        } catch (err) {
-          console.warn(`[VoiceSystem] Failed to revoke relay object URL for ${speakerId}:`, err);
-        }
-      }
-      entry.audio.remove();
-    }
+    this.detachRelayAudioElement(entry);
+    this._relayResetAttempts.delete(speakerId);
 
     this.voiceRelayRemotePlayers.delete(speakerId);
     this.remoteAudioSources.delete(`voice-relay-${speakerId}`);
   }
 
   resetRelaySpeakerPlayback(speakerId, payload = {}) {
+    const attempts = Number(this._relayResetAttempts.get(speakerId) || 0);
+    if (attempts >= 3) {
+      return this.voiceRelayRemotePlayers.get(speakerId) || null;
+    }
+
+    this._relayResetAttempts.set(speakerId, attempts + 1);
     this.removeRelaySpeakerPlayback(speakerId);
     return this.ensureRelaySpeakerPlayback(speakerId, payload);
   }
@@ -724,7 +839,11 @@ export class VoiceSystem {
     // from the current relay state, but no buffered audio chunks are replayed.
   }
 
-  handleVoiceRelayChunk(payload = {}) {
+  async handleVoiceRelayChunk(payload = {}) {
+    if (this.destroyed) {
+      return;
+    }
+
     const speakerId = String(payload.speakerId || "").trim();
     const chunk = payload.chunk;
     if (!speakerId || !chunk || speakerId === String(this.socket?.id || this.currentUserId || "")) return;
@@ -732,13 +851,7 @@ export class VoiceSystem {
     let entry = this.ensureRelaySpeakerPlayback(speakerId, payload);
     if (!entry) return;
 
-    const buffer = chunk instanceof ArrayBuffer
-      ? chunk
-      : ArrayBuffer.isView(chunk)
-        ? chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength)
-        : chunk?.arrayBuffer
-          ? null
-          : chunk?.buffer;
+    const buffer = await this.normalizeRelayChunk(chunk);
     if (!buffer) return;
 
     if (!this.isRelaySourceBufferReady(entry)) {
@@ -756,6 +869,7 @@ export class VoiceSystem {
       try {
         entry.sourceBuffer.appendBuffer(buffer);
         entry.appendedChunks += 1;
+        this._relayResetAttempts.delete(speakerId);
       } catch (err) {
         console.warn(`[VoiceSystem] Failed to append relay chunk for ${speakerId}:`, err);
         entry.queue.push(buffer);
@@ -818,6 +932,11 @@ export class VoiceSystem {
       this.startVoiceRelayHealthCheck();
       console.log("[VoiceSystem] Local stream initialized successfully");
       this.requestExistingPeers();
+
+      if (this.currentRole === "teacher" && !this.isMuted) {
+        await this.startVoiceRelay();
+      }
+
       return true;
     } catch (err) {
       console.error("[VoiceSystem] Failed to get local audio:", err);
@@ -880,29 +999,31 @@ export class VoiceSystem {
   }
 
   setupSocketListeners() {
-    this.socket.on("connect", this.handleSocketConnect);
-    this.socket.on("reconnect", () => {
+    this.bindSocketEvent("connect", this.handleSocketConnect);
+    this.bindSocketEvent("disconnect", this.handleSocketDisconnect);
+
+    this.bindSocketEvent("reconnect", () => {
       if (this.destroyed) return;
       console.log("[VoiceSystem] Socket reconnected");
       this.handleSocketConnect();
     });
 
-    this.socket.on("reconnect_attempt", (attempt) => {
+    this.bindSocketEvent("reconnect_attempt", (attempt) => {
       if (this.destroyed) return;
       console.log(`[VoiceSystem] Socket reconnect attempt ${attempt}`);
     });
 
-    this.socket.on("reconnect_error", (err) => {
+    this.bindSocketEvent("reconnect_error", (err) => {
       if (this.destroyed) return;
       console.warn("[VoiceSystem] Socket reconnect error:", err?.message || err);
     });
 
-    this.socket.on("connect_error", (err) => {
+    this.bindSocketEvent("connect_error", (err) => {
       if (this.destroyed) return;
       console.warn("[VoiceSystem] Socket connection error:", err?.message || err);
     });
 
-    this.socket.on("peer-joined", async ({ userId, role }) => {
+    this.bindSocketEvent("peer-joined", async ({ userId, role }) => {
       if (this.useServerVoiceRelay) {
         return;
       }
@@ -926,11 +1047,11 @@ export class VoiceSystem {
       }
     });
 
-    this.socket.on("voice-scaling-state", (payload) => {
+    this.bindSocketEvent("voice-scaling-state", (payload) => {
       this.applyVoiceScalingState(payload || {});
     });
 
-    this.socket.on("existing-peers", async (peers) => {
+    this.bindSocketEvent("existing-peers", async (peers) => {
       if (this.useServerVoiceRelay) {
         return;
       }
@@ -943,7 +1064,7 @@ export class VoiceSystem {
       await this.connectToPeerList(peers);
     });
 
-    this.socket.on("webrtc-offer", async ({ caller, callerRole, offer }) => {
+    this.bindSocketEvent("webrtc-offer", async ({ caller, callerRole, offer }) => {
       if (this.useServerVoiceRelay) {
         return;
       }
@@ -970,7 +1091,7 @@ export class VoiceSystem {
       }
     });
 
-    this.socket.on("webrtc-answer", async ({ caller, answer }) => {
+    this.bindSocketEvent("webrtc-answer", async ({ caller, answer }) => {
       if (this.useServerVoiceRelay) {
         return;
       }
@@ -1027,7 +1148,7 @@ export class VoiceSystem {
       }
     });
 
-    this.socket.on("webrtc-candidate", async ({ caller, candidate }) => {
+    this.bindSocketEvent("webrtc-candidate", async ({ caller, candidate }) => {
       if (this.useServerVoiceRelay) {
         return;
       }
@@ -1042,13 +1163,13 @@ export class VoiceSystem {
       }
     });
 
-    this.socket.on("peer-left", (userId) => {
+    this.bindSocketEvent("peer-left", (userId) => {
       console.log(`[VoiceSystem] Peer left: ${userId}`);
       this.closePeer(userId);
     });
     
     // Update audio state notifications from server (teacher or user updates)
-    this.socket.on("audio-state-change", ({ userId, muted, deafened, by }) => {
+    this.bindSocketEvent("audio-state-change", ({ userId, muted, deafened, by }) => {
       try {
         // If this update is about this client
         if (userId === this.currentUserId) {
@@ -1079,35 +1200,31 @@ export class VoiceSystem {
     });
 
     // Teachers receive list of raised hands
-    this.socket.on("raise-hand-list", (list) => {
+    this.bindSocketEvent("raise-hand-list", (list) => {
       console.log("[VoiceSystem] Raised hand list:", list);
-      // UI integration point: teacher UI can subscribe to socket events
     });
 
-    this.socket.on("voice-relay-start", (payload) => {
+    this.bindSocketEvent("voice-relay-start", (payload) => {
       this.handleVoiceRelayStart(payload || {});
     });
 
-    this.socket.on("voice-relay-chunk", (payload) => {
-      this.handleVoiceRelayChunk(payload || {});
+    this.bindSocketEvent("voice-relay-chunk", (payload) => {
+      this.handleVoiceRelayChunk(payload || {}).catch((err) => {
+        console.warn("[VoiceSystem] Failed to handle relay chunk:", err);
+      });
     });
 
-    this.socket.on("voice-relay-stop", (payload) => {
+    this.bindSocketEvent("voice-relay-stop", (payload) => {
       this.handleVoiceRelayStop(payload || {});
     });
 
-    this.socket.on("voice-relay-state", (payload = {}) => {
+    this.bindSocketEvent("voice-relay-state", (payload = {}) => {
       this.handleVoiceRelaySnapshot(payload || {});
     });
 
-    // Teachers receive unmute requests from students
-    this.socket.on("unmute-request", ({ userId }) => {
+    this.bindSocketEvent("unmute-request", ({ userId }) => {
       console.log("[VoiceSystem] Unmute request from:", userId);
-      // UI integration point: show prompt in teacher UI
     });
-    
-    // Handle multiple connections more gracefully
-    this.socket.on("disconnect", this.handleSocketDisconnect);
   }
 
   async initPeerConnection(userId, isInitiator) {
@@ -1315,74 +1432,77 @@ export class VoiceSystem {
   }
 
   destroy() {
+    if (this.destroyed) {
+      return;
+    }
+
     console.log("[VoiceSystem] Destroying voice system");
+    this.destroyed = true;
+
+    this.stopVoiceRelayHealthCheck();
 
     if (this.disconnectCleanupTimer) {
       clearTimeout(this.disconnectCleanupTimer);
       this.disconnectCleanupTimer = null;
     }
-    
-    // Clear all timeouts
-    this.peerConnectivityTimeout.forEach(timeoutId => clearTimeout(timeoutId));
+
+    this.peerConnectivityTimeout.forEach((timeoutId) => clearTimeout(timeoutId));
     this.peerConnectivityTimeout.clear();
 
-    this.handleSocketDisconnect("destroy");
-    // Stop health checks
-    try { this.stopVoiceRelayHealthCheck(); } catch (e) {}
-    this.destroyed = true;
-    
-    // Close all peer connections
+    this.stopVoiceRelay("destroy");
+    this.removeSocketListeners();
+
     this.peers.forEach((pc, userId) => {
-      pc.close();
-      console.log(`[VoiceSystem] Closed peer ${userId}`);
+      try {
+        pc.close();
+      } catch (err) {
+        console.warn(`[VoiceSystem] Failed to close peer ${userId}:`, err);
+      }
     });
     this.peers.clear();
-    
-    // Stop local stream tracks
+
     if (this.localStream) {
-      this.localStream.getTracks().forEach(t => {
-        t.stop();
-        console.log("[VoiceSystem] Stopped local track");
+      this.localStream.getTracks().forEach((track) => {
+        track.stop();
       });
       this.localStream = null;
     }
-    
-    // Remove all remote audio elements
-    document.querySelectorAll('.dc-remote-audio').forEach(a => {
-      a.pause();
-      a.srcObject = null;
-      a.remove();
-    });
 
-    this.voiceRelayRemotePlayers.forEach((entry) => {
-      try {
-        if (entry.audio) {
-          entry.audio.pause();
-          entry.audio.srcObject = null;
-          if (entry.objectUrl) {
-            URL.revokeObjectURL(entry.objectUrl);
-            entry.objectUrl = null;
-          }
-          entry.audio.remove();
-        }
-      } catch (err) {
-        console.warn("[VoiceSystem] Error cleaning up relay audio during destroy:", err);
-      }
+    Array.from(this.voiceRelayRemotePlayers.keys()).forEach((speakerId) => {
+      this.removeRelaySpeakerPlayback(speakerId);
     });
     this.voiceRelayRemotePlayers.clear();
     this.voiceRelayRecorders.clear();
+    this._relayResetAttempts.clear();
+
+    document.querySelectorAll(".dc-remote-audio, .dc-voice-relay-audio, .dc-voice-relay-fallback").forEach((audio) => {
+      try {
+        audio.pause();
+        audio.srcObject = null;
+        audio.src = "";
+        audio.load();
+        audio.remove();
+      } catch (err) {
+        console.warn("[VoiceSystem] Error removing remote audio element:", err);
+      }
+    });
+
+    this.remoteAudioSources.clear();
 
     const scalingBanner = document.getElementById(this.voiceScalingBannerId);
     if (scalingBanner) {
       scalingBanner.remove();
     }
-    
-    // Close audio context if created
+
     if (this.audioContext && this.audioContext.state !== "closed") {
-      this.audioContext.close();
+      this.audioContext.close().catch(() => {});
       this.audioContext = null;
     }
-    
+
+    if (typeof window !== "undefined" && window.activeVoiceSystem === this) {
+      window.activeVoiceSystem = null;
+    }
+
     console.log("[VoiceSystem] Voice system destroyed");
   }
 }

@@ -12,6 +12,14 @@ export function startClassroom(socket, role, options = {}) {
     throw new Error("Missing canvas-container element");
   }
 
+  if (typeof window.stopActiveClassroom === "function") {
+    try {
+      window.stopActiveClassroom();
+    } catch (err) {
+      console.warn("Failed to stop previous classroom runtime:", err);
+    }
+  }
+
   const canWriteBlackboard = Boolean(options.canWriteBlackboard);
   const lowBandwidth = Boolean(options.lowBandwidth);
   const strictLowBandwidth = Boolean(options.strictLowBandwidth);
@@ -27,8 +35,13 @@ export function startClassroom(socket, role, options = {}) {
     teacher,
   });
 
-  // Placeholder proxy function triggered on incoming socket updates
   let wakeCameraSystem = () => {};
+  let cameraSystem = null;
+  let blackboardTeardown = null;
+  let teacherKeydownHandler = null;
+  let visibilityHandler = null;
+  let blackboardDrawHandler = null;
+  let stopped = false;
 
   attachClassroomSocketSync({
     socket,
@@ -38,12 +51,12 @@ export function startClassroom(socket, role, options = {}) {
     teacher,
     onNetworkActivity: () => {
       wakeCameraSystem();
-    }
+    },
   });
 
   let controlsAttached = false;
   const attachLocalControls = () => {
-    if (controlsAttached) return;
+    if (controlsAttached || stopped) return;
     controlsAttached = true;
 
     if (role === "student") {
@@ -64,7 +77,7 @@ export function startClassroom(socket, role, options = {}) {
         ArrowLeft: "left",
         ArrowRight: "right",
       };
-      window.addEventListener("keydown", (event) => {
+      teacherKeydownHandler = (event) => {
         const direction = keyToDirection[event.key];
         if (!direction || event.target?.closest?.("input, textarea, select, button")) return;
         event.preventDefault();
@@ -73,8 +86,9 @@ export function startClassroom(socket, role, options = {}) {
           x: teacher.position.x,
           z: teacher.position.z,
         });
-        wakeCameraSystem(); // Ensure local moves render immediately
-      });
+        wakeCameraSystem();
+      };
+      window.addEventListener("keydown", teacherKeydownHandler);
     }
   };
 
@@ -84,26 +98,27 @@ export function startClassroom(socket, role, options = {}) {
     socket.once("connect", attachLocalControls);
   }
 
-  // Presentation synchronization via ImageSync
   import("../classroom/ImageSync.js").then(({ setupImageSync }) => {
+    if (stopped) return;
     const presentationButton = document.getElementById("presentation-button");
     const appRoot = document.getElementById("app");
     setupImageSync({
       socket,
       role,
       presentationButton,
-      appRoot
+      appRoot,
     });
   }).catch((error) => {
     console.error("Failed to initialize Image Sync module:", error);
   });
 
-  // Defer heavier interaction modules
   Promise.all([
     import("../classroom/CameraSystem.js"),
     import("../classroom/Blackboard.js"),
   ]).then(([cameraSystemModule, blackboardModule]) => {
-    const cameraSystem = cameraSystemModule.setupCameraSystem({
+    if (stopped) return;
+
+    cameraSystem = cameraSystemModule.setupCameraSystem({
       container,
       scene,
       camera,
@@ -113,19 +128,19 @@ export function startClassroom(socket, role, options = {}) {
       strictLowBandwidth,
     });
 
-    // Wakes up loop when browser tab becomes active again
-    document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) {
+    visibilityHandler = () => {
+      if (!document.hidden && cameraSystem) {
         cameraSystem.start();
         cameraSystem.requestRenderOnce();
       }
-    });
+    };
+    document.addEventListener("visibilitychange", visibilityHandler);
 
-    const onBlackboardDrawStart = () => {
+    blackboardDrawHandler = () => {
       cameraSystem.setBlackboardView(true);
       cameraSystem.requestRenderOnce();
     };
-    window.addEventListener("dc-blackboard-draw-start", onBlackboardDrawStart);
+    window.addEventListener("dc-blackboard-draw-start", blackboardDrawHandler);
 
     cameraSystem.requestRenderOnce();
 
@@ -138,7 +153,6 @@ export function startClassroom(socket, role, options = {}) {
       }, 4000);
     };
 
-    // Bind wakeCameraSystem implementation
     wakeCameraSystem = () => {
       if (!lowBandwidth) {
         cameraSystem.start();
@@ -156,7 +170,7 @@ export function startClassroom(socket, role, options = {}) {
       });
     }
 
-    blackboardModule.setupBlackboardSystem({
+    const blackboardApi = blackboardModule.setupBlackboardSystem({
       container,
       renderer,
       camera,
@@ -166,7 +180,58 @@ export function startClassroom(socket, role, options = {}) {
       lowBandwidth,
       strictLowBandwidth,
     });
+    if (typeof blackboardApi?.destroy === "function") {
+      blackboardTeardown = blackboardApi.destroy;
+    }
   }).catch((error) => {
     console.error("Failed to initialize deferred classroom modules:", error);
   });
+
+  const stopClassroom = () => {
+    if (stopped) return;
+    stopped = true;
+
+    if (teacherKeydownHandler) {
+      window.removeEventListener("keydown", teacherKeydownHandler);
+      teacherKeydownHandler = null;
+    }
+
+    if (visibilityHandler) {
+      document.removeEventListener("visibilitychange", visibilityHandler);
+      visibilityHandler = null;
+    }
+
+    if (blackboardDrawHandler) {
+      window.removeEventListener("dc-blackboard-draw-start", blackboardDrawHandler);
+      blackboardDrawHandler = null;
+    }
+
+    try {
+      blackboardTeardown?.();
+    } catch (err) {
+      console.warn("Blackboard teardown failed:", err);
+    }
+
+    try {
+      cameraSystem?.dispose?.();
+    } catch (err) {
+      console.warn("Camera teardown failed:", err);
+    }
+
+    try {
+      renderer.dispose();
+      renderer.forceContextLoss?.();
+    } catch (err) {
+      console.warn("Renderer teardown failed:", err);
+    }
+
+    try {
+      container.innerHTML = "";
+    } catch (err) {
+      console.warn("Canvas container cleanup failed:", err);
+    }
+  };
+
+  window.stopActiveClassroom = stopClassroom;
+  return stopClassroom;
 }

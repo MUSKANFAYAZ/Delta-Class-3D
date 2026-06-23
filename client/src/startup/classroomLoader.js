@@ -178,11 +178,12 @@ export function createClassroomLoader({
           setStatus(`3D classroom loaded in ${elapsedSeconds}s. Connecting live sync...`, "Loaded");
           loadButton.textContent = "3D classroom loaded";
           loadButton.disabled = true;
-          startClassroom(socket, role, {
+          const stopClassroom = startClassroom(socket, role, {
             canWriteBlackboard,
             lowBandwidth,
             strictLowBandwidth,
           });
+          window.stopActiveClassroom = stopClassroom;
         }
 
         socket.on("connect", () => {
@@ -253,6 +254,14 @@ export function createClassroomLoader({
 
   function disconnect() {
     removeSocketRecoveryHandlers();
+    if (typeof window.stopActiveClassroom === "function") {
+      try {
+        window.stopActiveClassroom();
+      } catch {
+        // ignore
+      }
+      window.stopActiveClassroom = null;
+    }
     if (activeSocket) {
       try {
         activeSocket.disconnect();

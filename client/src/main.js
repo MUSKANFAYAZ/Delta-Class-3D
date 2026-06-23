@@ -412,23 +412,52 @@ async function startRoomSocketOnly({ role, roomCode }) {
   });
 }
 
-function cleanupActiveClassroomConnection() {
-  if (activeVoiceSystem) {
-    try { activeVoiceSystem.destroy(); } catch(e) { console.error(e); }
+function cleanupClassroomRuntime({
+  disconnectSocket = false,
+  destroyVoice = true,
+  stopThree = true,
+} = {}) {
+  if (stopThree && typeof window.stopActiveClassroom === "function") {
+    try {
+      window.stopActiveClassroom();
+    } catch (err) {
+      console.warn("Failed to stop 3D classroom runtime:", err);
+    }
+    window.stopActiveClassroom = null;
+  }
+
+  if (destroyVoice && activeVoiceSystem) {
+    try {
+      activeVoiceSystem.destroy();
+    } catch (err) {
+      console.error("VoiceSystem destroy failed:", err);
+    }
     activeVoiceSystem = null;
     window.activeVoiceSystem = null;
   }
 
-  if (activeClassroomLoader) {
+  if (activeClassroomLoader && disconnectSocket) {
     activeClassroomLoader.disconnect();
     activeClassroomLoader = null;
   }
 
-  if (activeClassroomSocket) {
-    try { activeClassroomSocket.disconnect(); } catch {}
+  if (disconnectSocket && activeClassroomSocket) {
+    try {
+      activeClassroomSocket.disconnect();
+    } catch (err) {
+      console.warn("Socket disconnect failed:", err);
+    }
     activeClassroomSocket = null;
     window.activeClassroomSocket = null;
   }
+}
+
+function cleanupActiveClassroomConnection() {
+  cleanupClassroomRuntime({
+    disconnectSocket: true,
+    destroyVoice: true,
+    stopThree: true,
+  });
 }
 
 async function handleExitFromClassroom({ role, roomCode, isTeacher }, exitAction) {
@@ -598,13 +627,32 @@ async function mountLegacyClassroom(params) {
 
 async function renderRoute() {
   const { path, params } = parseHash();
-  const isClassroomRoute = path === "/classroom" || path === "/room" || path === "/group-discussion";
+  const classroomPaths = new Set(["/classroom", "/room", "/group-discussion"]);
+  const isClassroomRoute = classroomPaths.has(path);
+  const previousPath = window.__lastRoutePath || "";
+
+  if (previousPath && previousPath !== path) {
+    const leavingClassroom = !isClassroomRoute && classroomPaths.has(previousPath);
+    const switchingClassroomSubview = isClassroomRoute && classroomPaths.has(previousPath);
+
+    if (leavingClassroom) {
+      cleanupClassroomRuntime({ disconnectSocket: true, destroyVoice: true, stopThree: true });
+    } else if (switchingClassroomSubview) {
+      cleanupClassroomRuntime({
+        disconnectSocket: false,
+        destroyVoice: true,
+        stopThree: previousPath === "/classroom" && path !== "/classroom",
+      });
+    }
+  }
+
+  window.__lastRoutePath = path;
 
   if (isClassroomRoute) {
     enableClassroomRefreshGuard();
   } else {
     disableClassroomRefreshGuard();
-    cleanupActiveClassroomConnection();
+    cleanupClassroomRuntime({ disconnectSocket: true, destroyVoice: true, stopThree: true });
   }
 
   // Cleanup discussion page listeners when leaving discussion
@@ -882,6 +930,22 @@ async function renderRoute() {
       // Setup the WebSocket stream to connect to the spectator channel room in the background
       // This immediately signals the teacher dashboard WITHOUT forcing the 3D modules to load on the student screen
       const initPendingWebsocketHandshake = async () => {
+        if (window.activeClassroomSocket) {
+          activeClassroomSocket = window.activeClassroomSocket;
+          if (activeClassroomSocket.connected) {
+            window.dispatchEvent(new CustomEvent("delta-classroom-socket-ready", { detail: { socket: activeClassroomSocket } }));
+          } else {
+            activeClassroomSocket.once("connect", () => {
+              window.dispatchEvent(new CustomEvent("delta-classroom-socket-ready", { detail: { socket: activeClassroomSocket } }));
+            });
+          }
+          checkAndInitVoice();
+          if (roomRole === "teacher") {
+            initRaiseHandWiring();
+          }
+          return;
+        }
+
         const [{ io }] = await Promise.all([ loadSocketClientModule() ]);
         const socket = io({
           path: "/socket.io",
@@ -1040,15 +1104,6 @@ async function renderRoute() {
     if (!roomCode) {
       navigate(`/dashboard?role=${routeRole}`);
       return;
-    }
-
-    // Stop voice relay when entering discussion to avoid resource conflicts
-    if (window.activeVoiceSystem && typeof window.activeVoiceSystem.stopVoiceRelay === "function") {
-      try {
-        window.activeVoiceSystem.stopVoiceRelay("entering-discussion");
-      } catch (e) {
-        console.warn("Failed to stop voice relay on discussion entry:", e);
-      }
     }
 
     const { mountRoomToolPage } = await import("./features/dashboard/groupDiscussionPage.js");

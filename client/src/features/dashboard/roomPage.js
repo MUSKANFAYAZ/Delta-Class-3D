@@ -336,21 +336,32 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
 
   // Initialize Voice System when socket becomes available
   const initializeVoiceSystem = async () => {
-    if (window.activeClassroomSocket && !voiceSystem) {
+    const socket = window.activeClassroomSocket;
+    if (!socket) return;
+
+    if (voiceSystem && voiceSystem.socket !== socket) {
+      try {
+        voiceSystem.destroy();
+      } catch (err) {
+        console.warn("Failed to destroy stale voice system:", err);
+      }
+      voiceSystem = null;
+      window.activeVoiceSystem = null;
+    }
+
+    if (!voiceSystem) {
       try {
         const { VoiceSystem } = await import("../../../classroom/VoiceSystem.js");
-        voiceSystem = new VoiceSystem(window.activeClassroomSocket, window.activeClassroomSocket.id, role);
+        voiceSystem = new VoiceSystem(socket, socket.id, role);
         window.activeVoiceSystem = voiceSystem;
-        
-        // Initialize local stream
+
         const micAvailable = await voiceSystem.initLocalStream();
         if (!micAvailable) {
           console.log("Microphone not available");
         }
 
-        // Set up button event handlers
         setupVoiceControls();
-        
+
         console.log("Voice System initialized successfully");
       } catch (error) {
         console.error("Failed to initialize Voice System:", error);
@@ -607,7 +618,10 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
   };
 
   checkAndInitializeVoice();
-  window.addEventListener("delta-classroom-socket-ready", ensureClassroomSocketBindings);
+  window.addEventListener("delta-classroom-socket-ready", () => {
+    ensureClassroomSocketBindings();
+    initializeVoiceSystem();
+  });
 
   if (role === "teacher" && pendingRequestsList) {
     pendingRequestsList.addEventListener("click", handlePendingRequestAction);

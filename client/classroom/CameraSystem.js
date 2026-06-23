@@ -251,6 +251,18 @@ export function setupCameraSystem({ container, scene, camera, renderer, teacher,
     running = false;
   }
 
+  function dispose() {
+    running = false;
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+    window.removeEventListener("resize", onResize);
+    if (root.parentElement) {
+      root.remove();
+    }
+  }
+
   function requestRenderOnce() {
     // Render a single frame regardless of running state
     updateCameraTransition();
@@ -281,6 +293,7 @@ export function setupCameraSystem({ container, scene, camera, renderer, teacher,
     setTeacherView,
     start,
     stop,
+    dispose,
     requestRenderOnce,
   };
 }
