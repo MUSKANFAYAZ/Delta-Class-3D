@@ -27,7 +27,7 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
                       <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
                       <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
                     </svg>
-                    <span class="dc-raise-hand-label">🙋</span>
+                    <span class="dc-raise-hand-label">Raise</span>
                   </span>
                 </button>
             ` : `
@@ -473,7 +473,7 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           ${handPaths}
         </svg>
-        <span class="dc-raise-hand-label">Raise</span>
+        <span class="dc-raise-hand-label">🙋</span>
       `;
 
     raiseHandButton.innerHTML = `<span class="dc-raise-hand-icon">${iconContent}</span>`;
