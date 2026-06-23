@@ -28,14 +28,17 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
 
         <div class="voice-controls dc-room-voice-controls">
           ${role === "student" ? `
-            <button id="raise-hand-button" type="button" class="dc-btn dc-btn-ghost dc-room-icon-btn" data-tooltip="Raise Hand">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
-                <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
-                <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
-                <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
-                <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
-              </svg>
+            <button id="raise-hand-button" type="button" class="dc-btn dc-btn-ghost dc-room-icon-btn" data-tooltip="Raise Hand" aria-label="Raise your hand">
+              <span class="dc-raise-hand-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
+                  <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
+                  <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
+                  <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
+                  <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
+                </svg>
+                <span class="dc-raise-hand-label">Raise</span>
+              </span>
             </button>
           ` : ``}
           <button id="mute-button" type="button" class="dc-btn dc-btn-ghost dc-room-icon-btn" data-tooltip="Unmute Mic">
@@ -126,28 +129,29 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
   const pendingRequestsEmpty = wrap.querySelector("#pending-requests-empty");
   const pendingRequestCount = wrap.querySelector("#pending-request-count");
   const discussionButton = wrap.querySelector("#discussion-button");
+  const handIconPaths = `
+    <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
+    <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
+    <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
+    <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
+    <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
+  `;
   const handUpIcon = `
     <span class="dc-raise-hand-icon">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
-        <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
-        <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
-        <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
-        <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        ${handIconPaths}
       </svg>
+      <span class="dc-raise-hand-label">Raise</span>
     </span>
   `;
   const handDownIcon = `
     <span class="dc-raise-hand-icon">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
-        <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
-        <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
-        <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
-        <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
-        <path d="M20 4v6"></path>
-        <path d="M17 7l3 3 3-3"></path>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        ${handIconPaths}
+        <path d="M12 20v-3"></path>
+        <path d="M9 18l3 3 3-3"></path>
       </svg>
+      <span class="dc-raise-hand-label">Lower</span>
     </span>
   `;
   const noticeBanner = document.createElement("div");

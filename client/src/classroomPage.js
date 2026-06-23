@@ -27,6 +27,7 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
                       <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
                       <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
                     </svg>
+                    <span class="dc-raise-hand-label">Raise</span>
                   </span>
                 </button>
             ` : `
@@ -451,28 +452,28 @@ export function renderClassroomPage(appRoot, { role = "student", onExit, api } =
   const updateRaiseHandIcon = (raised) => {
     if (!raiseHandButton) return;
 
+    const handPaths = `
+      <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
+      <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
+      <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
+      <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
+      <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
+    `;
+
     const iconContent = raised
       ? `
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
-          <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
-          <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
-          <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
-          <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
-          <path d="M12 3v4"></path>
-          <path d="M9 6l3 3 3-3"></path>
+          ${handPaths}
+          <path d="M12 20v-3"></path>
+          <path d="M9 18l3 3 3-3"></path>
         </svg>
+        <span class="dc-raise-hand-label">Lower</span>
       `
       : `
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11"></path>
-          <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11"></path>
-          <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V14c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2"></path>
-          <path d="M6 12.5v-1a1.5 1.5 0 0 1 3 0V14"></path>
-          <path d="M8 19c1.2 1.2 2.7 2 4 2s2.8-.8 4-2"></path>
-          <path d="M12 21v-4"></path>
-          <path d="M9 19l3 3 3-3"></path>
+          ${handPaths}
         </svg>
+        <span class="dc-raise-hand-label">Raise</span>
       `;
 
     raiseHandButton.innerHTML = `<span class="dc-raise-hand-icon">${iconContent}</span>`;

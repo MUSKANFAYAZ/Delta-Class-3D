@@ -266,6 +266,11 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 4px;
+}
+
+.dc-raise-hand-button--active .dc-raise-hand-label {
+  color: #ffffff;
 }
 
 .dc-raise-hand-label {
