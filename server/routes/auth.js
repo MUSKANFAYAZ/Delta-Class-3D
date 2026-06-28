@@ -85,45 +85,61 @@ router.post("/login", async (req, res) => {
     const password = String(req.body.password || "");
     const role = req.body.role === "teacher" ? "teacher" : "student";
     
+    console.log("[AUTH/login] ====== LOGIN REQUEST RECEIVED ======");
+    console.log("[AUTH/login] Origin:", req.get("origin"));
+    console.log("[AUTH/login] Host:", req.get("host"));
+    console.log("[AUTH/login] Method:", req.method);
+    console.log("[AUTH/login] Path:", req.path);
+    console.log("[AUTH/login] Body:", { phone, role, passwordLength: password.length });
+    
     if (DEBUG_LOGS) console.log("[AUTH/login] Incoming request:", { phone, role });
     
     if (!phone || !password) {
+      console.warn("[AUTH/login] Missing phone or password");
       if (DEBUG_LOGS) console.warn("[AUTH/login] Missing phone or password");
       return res.status(400).json({ message: "Phone and password required" });
     }
     if (!isValidPhoneWithCode(phone)) {
+      console.warn("[AUTH/login] Invalid phone format:", phone);
       if (DEBUG_LOGS) console.warn("[AUTH/login] Invalid phone format:", phone);
       return res.status(400).json({ message: "Phone must include country code and 10-digit number (example: +911234567890)" });
     }
     if (password.length < 6) return res.status(400).json({ message: "Password must be at least 6 characters" });
 
+    console.log("[AUTH/login] Looking up user in database:", phone);
     if (DEBUG_LOGS) console.log("[AUTH/login] Looking up user:", phone);
     const user = await User.findOne({ phone });
     if (!user) {
+      console.warn("[AUTH/login] User not found:", phone);
       if (DEBUG_LOGS) console.warn("[AUTH/login] User not found:", phone);
       return res.status(404).json({ message: "User not found" });
     }
     
     if (user.role !== role) {
+      console.warn("[AUTH/login] Role mismatch. User role:", user.role, "Requested role:", role);
       if (DEBUG_LOGS) console.warn("[AUTH/login] Role mismatch. User role:", user.role, "Requested role:", role);
       return res.status(403).json({ message: `This account is registered as ${user.role}, not ${role}` });
     }
 
+    console.log("[AUTH/login] Comparing passwords for user:", user._id);
     if (DEBUG_LOGS) console.log("[AUTH/login] Comparing passwords for user:", user._id);
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) {
+      console.warn("[AUTH/login] Wrong password for user:", phone);
       if (DEBUG_LOGS) console.warn("[AUTH/login] Wrong password for user:", phone);
       return res.status(401).json({ message: "Wrong password" });
     }
 
     const token = signAccessToken({ sub: user._id.toString(), role: user.role, phone: user.phone, name: user.name });
+    console.log("[AUTH/login] ✓ LOGIN SUCCESSFUL for user:", user._id, "token generated");
     if (DEBUG_LOGS) console.log("[AUTH/login] Login successful for user:", user._id);
     return res.json({
       token,
       user: { name: user.name, role: user.role, userId: user.userId, phone: user.phone, studentClass: user.studentClass },
     });
   } catch (error) {
-    console.error("[AUTH/login] Error:", error?.message || error, error?.stack);
+    console.error("[AUTH/login] ✗ ERROR:", error?.message || error);
+    console.error("[AUTH/login] Stack:", error?.stack);
     return res.status(500).json({ message: "Login failed", detail: error?.message });
   }
 });

@@ -1,17 +1,30 @@
 import "./styles.css";
 import { registerServiceWorker } from "./startup/registerServiceWorker.js";
 import { showConfirmDialog, showAlertDialog } from "./utils/dialogs.js";
-import { socketTransports } from "./socketTransport.js";
+import { socketTransports, socketServerUrl, socketPath } from "./socketTransport.js";
 
 registerServiceWorker();
 
 const appRoot = document.getElementById("app");
 if (!appRoot) throw new Error("Missing app root element");
 
+const SERVER_URL = String(import.meta.env.VITE_SERVER_URL || "").trim().replace(/\/+$/, "");
+const AUTH_API_URL = String(import.meta.env.VITE_AUTH_API_URL || "").trim().replace(/\/+$/, "");
 const AUTH = {
-  baseUrl: import.meta.env.VITE_AUTH_API_URL || "/auth",
+  baseUrl: AUTH_API_URL || (SERVER_URL ? `${SERVER_URL}/auth` : "/auth"),
   tokenKey: "delta-access-token",
 };
+
+console.log("[STARTUP] Frontend Environment Config:", {
+  VITE_SERVER_URL: import.meta.env.VITE_SERVER_URL,
+  VITE_AUTH_API_URL: import.meta.env.VITE_AUTH_API_URL,
+  resolvedServerUrl: SERVER_URL,
+  resolvedAuthApiUrl: AUTH_API_URL,
+  authBaseUrl: AUTH.baseUrl,
+});
+const SOCKET_URL = socketServerUrl || SERVER_URL || undefined;
+const SOCKET_PATH = socketPath;
+
 const STORAGE = {
   network: "delta-network-profile",
 };
@@ -45,35 +58,51 @@ function getToken() {
   return localStorage.getItem(AUTH.tokenKey) || "";
 }
 
+function createSocketInstance(io, options = {}) {
+  const socketOptions = {
+    path: SOCKET_PATH,
+    transports: socketTransports,
+    ...options,
+  };
+
+  return SOCKET_URL ? io(SOCKET_URL, socketOptions) : io(socketOptions);
+}
+
 async function api(path, { method = "GET", body, token } = {}) {
   const headers = { "Content-Type": "application/json" };
   const currentToken = token ?? getToken();
   if (currentToken) headers.Authorization = `Bearer ${currentToken}`;
 
   const url = `${AUTH.baseUrl}${path}`;
-  try {
-    console.debug("[api] request", { method, url, tokenPresent: Boolean(currentToken) });
-  } catch {}
+  console.log("[API] Request:", { method, url, tokenPresent: Boolean(currentToken), body });
 
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
+  let res;
   try {
-    console.debug("[api] response", { method, url, status: res.status });
-  } catch {}
+    res = await fetch(url, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    console.log("[API] Response received:", { method, url, status: res.status, statusText: res.statusText });
+  } catch (fetchErr) {
+    console.error("[API] Fetch error:", { method, url, error: fetchErr.message });
+    throw new Error(`Network error: ${fetchErr.message}`);
+  }
 
   let data = null;
   try {
     data = await res.json();
-  } catch {}
-
-  if (!res.ok) {
-    throw new Error(data?.message || `Request failed (${res.status})`);
+  } catch (jsonErr) {
+    console.warn("[API] Response body is not JSON:", { method, url, status: res.status });
   }
 
+  if (!res.ok) {
+    const errorMsg = data?.message || `Request failed (${res.status})`;
+    console.error("[API] Request failed:", { method, url, status: res.status, errorMsg, data });
+    throw new Error(errorMsg);
+  }
+
+  console.log("[API] Request successful:", { method, url, dataKeys: data ? Object.keys(data) : null });
   return data;
 }
 
@@ -190,9 +219,7 @@ async function startSocketClassroom({ role, roomCode }) {
     import("./classroom.js"),
   ]);
 
-  const socket = io({
-    path: "/socket.io",
-    transports: socketTransports,
+  const socket = createSocketInstance(io, {
     auth: { role, roomCode, token: getToken(), displayName: localStorage.getItem("delta-user-display") || "" },
     query: { role, roomCode, token: getToken() },
     reconnection: true,
@@ -272,8 +299,7 @@ async function startSocketClassroom({ role, roomCode }) {
             console.warn('[socket] Parse error detected, retrying with polling-only transport');
             try { socket.disconnect(); } catch {}
             const { io: ioFallback } = await loadSocketClientModule();
-            const fallback = ioFallback({
-              path: "/socket.io",
+            const fallback = createSocketInstance(ioFallback, {
               transports: ["polling"],
               auth: { role, roomCode, token: getToken(), displayName: localStorage.getItem("delta-user-display") || "" },
               query: { role, roomCode, token: getToken() },
@@ -326,8 +352,7 @@ async function startSocketClassroom({ role, roomCode }) {
 
 async function startRoomSocketOnly({ role, roomCode }) {
   const { io } = await loadSocketClientModule();
-  const socket = io({
-    path: "/socket.io",
+  const socket = createSocketInstance(io, {
     transports: socketTransports,
     auth: {
       role,
@@ -363,8 +388,7 @@ async function startRoomSocketOnly({ role, roomCode }) {
             console.warn('[socket] Parse error detected (room socket), retrying with polling-only transport');
             try { socket.disconnect(); } catch {}
             const { io: ioFallback } = await loadSocketClientModule();
-            const fallback = ioFallback({
-              path: "/socket.io",
+            const fallback = createSocketInstance(ioFallback, {
               transports: ["polling"],
               auth: {
                 role,
@@ -731,8 +755,69 @@ async function renderRoute() {
       activeClassroomLoader = classroomLoader;
       
       const checkAndInitVoice = async () => {
+        console.log("[VOICE DEBUG] checkAndInitVoice called. activeVoiceSystem=", Boolean(activeVoiceSystem), "window.activeClassroomSocket=", Boolean(window.activeClassroomSocket));
+        
         if (window.activeClassroomSocket) {
           if (activeVoiceSystem && activeVoiceSystem.socket !== window.activeClassroomSocket) {
+            if (typeof activeVoiceSystem.transferSocket === "function"
+              && activeVoiceSystem.currentRole === roomRole
+              && activeVoiceSystem.useServerVoiceRelay) {
+              console.log("[VOICE DEBUG] Transferring existing voice system to new socket");
+              const transferred = await activeVoiceSystem.transferSocket(window.activeClassroomSocket).catch((e) => {
+                console.warn("Voice transfer failed", e);
+                return false;
+              });
+              if (transferred) {
+                activeVoiceSystem = window.activeVoiceSystem = activeVoiceSystem;
+                if (page.muteButton) {
+                  const setMuteButtonState = (isMuted) => {
+                    page.muteButton.innerHTML = isMuted
+                      ? '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>'
+                      : '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
+                    page.muteButton.setAttribute("data-tooltip", isMuted ? "Unmute Mic" : "Mute Mic");
+                    page.muteButton.style.color = isMuted ? "#dc2626" : "#16a34a";
+                    page.muteButton.disabled = false;
+                    page.muteButton.removeAttribute("disabled");
+                  };
+
+                  setMuteButtonState(Boolean(activeVoiceSystem.isMuted));
+                  const socket = window.activeClassroomSocket;
+                  if (socket) {
+                    const onAudioStateChange = ({ userId, muted, by }) => {
+                      if (userId !== socket.id) return;
+                      const isMuted = Boolean(muted);
+                      setMuteButtonState(isMuted);
+                      if (by && !isMuted) {
+                        page.setStatus("Teacher enabled your microphone. You can ask your question now.", "Mic unmuted", true);
+                        if (typeof activeVoiceSystem?.enableRemoteAudioWithGesture === "function") {
+                          activeVoiceSystem.enableRemoteAudioWithGesture();
+                        }
+                        window.setTimeout(() => {
+                          if (page?.setStatus) {
+                            page.setStatus("Ready to load the classroom.", "Idle", true);
+                          }
+                        }, 3500);
+                      } else if (by && isMuted) {
+                        page.setStatus("Teacher muted your microphone.", "Mic muted", false);
+                      }
+                    };
+                    if (page.muteButton._audioStateListener && page.muteButton._audioStateListenerSocket) {
+                      try {
+                        page.muteButton._audioStateListenerSocket.off("audio-state-change", page.muteButton._audioStateListener);
+                      } catch (e) {
+                        console.warn("Failed to remove old audio-state-change listener:", e);
+                      }
+                    }
+                    socket.on("audio-state-change", onAudioStateChange);
+                    page.muteButton._audioStateListener = onAudioStateChange;
+                    page.muteButton._audioStateListenerSocket = socket;
+                  }
+                }
+                return activeVoiceSystem;
+              }
+            }
+
+            console.log("[VOICE DEBUG] Socket mismatch detected. Destroying old voice system.");
             try {
               activeVoiceSystem.destroy();
             } catch (e) {
@@ -743,54 +828,125 @@ async function renderRoute() {
           }
         }
 
+        if (window.activeVoiceSystem && window.activeClassroomSocket
+          && window.activeVoiceSystem.socket === window.activeClassroomSocket) {
+          console.log("[VOICE DEBUG] Reusing existing voice system");
+          activeVoiceSystem = window.activeVoiceSystem;
+          return activeVoiceSystem;
+        }
+
         if (window.activeClassroomSocket && !activeVoiceSystem) {
+          console.log("[VOICE DEBUG] Creating new voice system for socket", window.activeClassroomSocket.id);
           try {
             const { VoiceSystem } = await import("../classroom/VoiceSystem.js");
             activeVoiceSystem = new VoiceSystem(window.activeClassroomSocket, window.activeClassroomSocket.id, roomRole);
             window.activeVoiceSystem = activeVoiceSystem;
             try {
               await activeVoiceSystem.initLocalStream();
+              if (roomRole === "teacher") {
+                activeVoiceSystem.setMuted(false);
+                activeVoiceSystem.startVoiceRelayHealthCheck();
+              }
             } catch (e) {
               console.error("Voice init err", e);
             }
 
             if (page.muteButton) {
               const setMuteButtonState = (isMuted) => {
+                console.log("[VOICE DEBUG] Setting mute button state to:", isMuted);
                 page.muteButton.innerHTML = isMuted
                   ? '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>'
                   : '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
                 page.muteButton.setAttribute("data-tooltip", isMuted ? "Unmute Mic" : "Mute Mic");
                 page.muteButton.style.color = isMuted ? "#dc2626" : "#16a34a";
+                page.muteButton.disabled = false;
+                page.muteButton.removeAttribute("disabled");
               };
 
               setMuteButtonState(Boolean(activeVoiceSystem.isMuted));
-              page.muteButton.addEventListener("click", () => {
-                const isMuted = activeVoiceSystem.toggleMute();
-                if (!isMuted) {
-                  activeVoiceSystem.enableRemoteAudioWithGesture && activeVoiceSystem.enableRemoteAudioWithGesture();
-                }
-                setMuteButtonState(isMuted);
-              });
+              
+              if (roomRole === "teacher") {
+                console.log("[VOICE DEBUG] Teacher detected. Forcing unmuted state after 200ms delay to ensure relay initializes");
+                setTimeout(() => {
+                  if (activeVoiceSystem && activeVoiceSystem.isMuted) {
+                    console.log("[VOICE DEBUG] Teacher still muted after delay! Forcing unmute.");
+                    activeVoiceSystem.setMuted(false);
+                    setMuteButtonState(false);
+                  }
+                }, 200);
+              }
 
-              window.activeClassroomSocket.on("audio-state-change", ({ userId, muted, by }) => {
-                if (userId !== window.activeClassroomSocket.id) return;
-                const isMuted = Boolean(muted);
-                setMuteButtonState(isMuted);
-                if (by && !isMuted) {
-                  page.setStatus("Teacher unmuted your microphone.", "Mic unmuted", true);
-                  window.setTimeout(() => {
-                    if (page?.setStatus) {
-                      page.setStatus("Ready to load the classroom.", "Idle", true);
-                    }
-                  }, 3500);
-                } else if (by && isMuted) {
-                  page.setStatus("Teacher muted your microphone.", "Mic muted", false);
+              if (!page.muteButton._muteButtonClicked) {
+                page.muteButton._muteButtonClicked = true;
+                page.muteButton.addEventListener("click", async () => {
+                  console.log("[VOICE DEBUG] Mute button clicked. activeVoiceSystem=", Boolean(activeVoiceSystem));
+                  if (!activeVoiceSystem) {
+                    console.log("[VOICE DEBUG] Voice system missing, initializing...");
+                    await checkAndInitVoice();
+                  }
+                  if (!activeVoiceSystem) {
+                    console.error("[VOICE DEBUG] Voice system failed to initialize");
+                    page.setStatus("Voice system is still initializing. Please try again.", "Connecting");
+                    return;
+                  }
+                  if (typeof activeVoiceSystem.enableRemoteAudioWithGesture === "function") {
+                    activeVoiceSystem.enableRemoteAudioWithGesture();
+                  }
+                  console.log("[VOICE DEBUG] Calling toggleMute()");
+                  const isMuted = activeVoiceSystem.toggleMute();
+                  console.log("[VOICE DEBUG] toggleMute returned:", isMuted);
+                  setMuteButtonState(isMuted);
+                });
+              }
+
+              const attachAudioStateListener = () => {
+                const socket = window.activeClassroomSocket;
+                if (!socket) return;
+
+                if (page.muteButton._audioStateListenerSocket === socket) {
+                  return;
                 }
-              });
+
+                if (page.muteButton._audioStateListener && page.muteButton._audioStateListenerSocket) {
+                  try {
+                    page.muteButton._audioStateListenerSocket.off("audio-state-change", page.muteButton._audioStateListener);
+                  } catch (e) {
+                    console.warn("Failed to remove old audio-state-change listener:", e);
+                  }
+                }
+
+                const onAudioStateChange = ({ userId, muted, by }) => {
+                  if (userId !== socket.id) return;
+                  const isMuted = Boolean(muted);
+                  setMuteButtonState(isMuted);
+                  if (by && !isMuted) {
+                    page.setStatus("Teacher enabled your microphone. You can ask your question now.", "Mic unmuted", true);
+                    if (typeof activeVoiceSystem?.enableRemoteAudioWithGesture === "function") {
+                      activeVoiceSystem.enableRemoteAudioWithGesture();
+                    }
+                    window.setTimeout(() => {
+                      if (page?.setStatus) {
+                        page.setStatus("Ready to load the classroom.", "Idle", true);
+                      }
+                    }, 3500);
+                  } else if (by && isMuted) {
+                    page.setStatus("Teacher muted your microphone.", "Mic muted", false);
+                  }
+                };
+
+                socket.on("audio-state-change", onAudioStateChange);
+                page.muteButton._audioStateListener = onAudioStateChange;
+                page.muteButton._audioStateListenerSocket = socket;
+              };
+
+              attachAudioStateListener();
             }
 
             if (page.deafenButton && roomRole === "student") {
               page.deafenButton.addEventListener("click", () => {
+                if (typeof activeVoiceSystem.enableRemoteAudioWithGesture === "function") {
+                  activeVoiceSystem.enableRemoteAudioWithGesture();
+                }
                 const isDeafened = activeVoiceSystem.toggleDeafen();
                 page.deafenButton.innerHTML = isDeafened
                   ? '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>'
@@ -802,9 +958,15 @@ async function renderRoute() {
           } catch (e) {
             console.error("Voice load err", e);
           }
-        } else {
-          setTimeout(checkAndInitVoice, 500);
+          return activeVoiceSystem;
         }
+
+        if (!window.activeClassroomSocket) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          return checkAndInitVoice();
+        }
+
+        return activeVoiceSystem;
       };
       
       let wiredRaiseHandSocket = null;
@@ -894,13 +1056,14 @@ async function renderRoute() {
       };
 
       window.addEventListener("delta-classroom-socket-ready", () => {
+        console.log("[VOICE DEBUG] Socket ready event fired. window.activeClassroomSocket=", window.activeClassroomSocket?.id);
         checkAndInitVoice();
         initRaiseHandWiring();
       });
 
       // --- CRITICAL FIXED IMPLEMENTATION HANDLER BLOCK ---
       // Intercept click event execution chains safely on the purple button element
-      page.loadButton.addEventListener("click", (e) => {
+      page.loadButton.addEventListener("click", async (e) => {
         if (isPendingStudent) {
           // Block 3D boot entirely if they are pending, forcing them to remain on the clean loading layout interface
           e.stopImmediatePropagation();
@@ -909,9 +1072,13 @@ async function renderRoute() {
         }
         
         // Approved students continue down the original, optimized 2G/low-bandwidth runtime execution track cleanly
-        classroomLoader.handleLoadClick();
-        checkAndInitVoice();
+        await classroomLoader.handleLoadClick();
+        const voice = await checkAndInitVoice();
         initRaiseHandWiring();
+        const voiceSystem = voice || window.activeVoiceSystem;
+        if (voiceSystem && typeof voiceSystem.enableRemoteAudioWithGesture === "function") {
+          voiceSystem.enableRemoteAudioWithGesture();
+        }
       });
       
       page.loadButton.addEventListener("mouseenter", () => {
@@ -947,9 +1114,7 @@ async function renderRoute() {
         }
 
         const [{ io }] = await Promise.all([ loadSocketClientModule() ]);
-        const socket = io({
-          path: "/socket.io",
-          transports: ["websocket", "polling"],
+        const socket = createSocketInstance(io, {
           auth: { role: roomRole, roomCode, token: getToken(), displayName: localStorage.getItem("delta-user-display") || "" },
           query: { role: roomRole, roomCode, token: getToken() }
         });
@@ -988,13 +1153,13 @@ async function renderRoute() {
         
         // Auto refresh student screen layout natively once approved live by the teacher
         socket.on('admission-approved', (payload = {}) => {
-          showStudentDecisionModal(payload?.message || 'You were approved to join the classroom.', () => {
+          showStudentDecisionModal(payload?.message || 'You were approved to join the classroom.', async () => {
             isPendingStudent = false;
             page.setStatus('Approved by teacher. Loading classroom...', 'Approved', true);
             if (classroomLoader && typeof classroomLoader.handleLoadClick === 'function') {
-              classroomLoader.handleLoadClick();
+              await classroomLoader.handleLoadClick();
             }
-            checkAndInitVoice();
+            await checkAndInitVoice();
             initRaiseHandWiring();
           });
         });

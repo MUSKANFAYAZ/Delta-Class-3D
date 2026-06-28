@@ -89,6 +89,7 @@ export function mountDashboard(
 
   // Background sockets for teacher dashboard notifications
   const backgroundSockets = new Map();
+  
   async function loadSocketClientModule() {
     try {
       return await import("https://cdn.jsdelivr.net/npm/socket.io-client@4.8.3/dist/socket.io.esm.min.js");
@@ -97,14 +98,26 @@ export function mountDashboard(
     }
   }
 
+  function createSocketInstance(io, options = {}) {
+    const socketServerUrl = String(import.meta.env.VITE_SERVER_URL || "").trim().replace(/\/+$/, "");
+    const socketPath = "/socket.io";
+    const socketTransports = ["websocket", "polling"];
+
+    const socketOptions = {
+      path: socketPath,
+      transports: socketTransports,
+      ...options,
+    };
+
+    return socketServerUrl ? io(socketServerUrl, socketOptions) : io(socketOptions);
+  }
+
   async function ensureRoomSocket(roomCode) {
     if (!roomCode || backgroundSockets.has(roomCode)) return;
     try {
       const { io } = await loadSocketClientModule();
       const token = localStorage.getItem("delta-access-token") || "";
-      const socket = io({
-        path: "/socket.io",
-        transports: ["websocket", "polling"],
+      const socket = createSocketInstance(io, {
         auth: { role: "teacher", roomCode, token, displayName: localStorage.getItem("delta-user-display") || "" },
         query: { role: "teacher", roomCode, token },
       });

@@ -511,6 +511,30 @@
   background: rgba(248, 244, 255, 0.88);
   border-radius: 14px;
   padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dc-discussion-entry--image {
+  padding: 12px;
+}
+
+.dc-discussion-delete {
+  align-self: flex-start;
+  padding: 4px 12px;
+  font-size: 12px;
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.dc-discussion-delete:hover {
+  background: #fecaca;
+  border-color: #f87171;
 }
 
 .dc-discussion-entry-meta {
@@ -520,20 +544,37 @@
   color: #6b21a8;
 }
 
+.dc-discussion-image-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  margin: 8px 0;
+}
+
 .dc-discussion-image-wrap img {
   width: 100%;
+  max-width: 400px;
+  max-height: 300px;
   display: block;
   border-radius: 12px;
   border: 1px solid rgba(106, 62, 191, 0.12);
+  object-fit: contain;
 }
 
 .dc-discussion-form {
   display: grid;
   gap: 10px;
+  margin-top: 8px;
 }
 
 .dc-discussion-input {
   width: 100%;
+}
+
+/* Better spacing for button containers */
+.dc-discussion-card > div[style*="display:flex"] {
+  gap: 12px !important;
+  margin-top: 12px !important;
 }
 
 .dc-discussion-polls {
@@ -546,6 +587,12 @@
   border-radius: 14px;
   padding: 12px;
   background: #fff;
+}
+
+.dc-discussion-poll-options-wrap {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
 }
 
 .dc-discussion-poll-options {

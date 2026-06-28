@@ -18,6 +18,36 @@ module.exports = function attachSocketHandlers(io, deps) {
     ? parsedVoiceLimit
     : 12;
 
+  // Serialize MongoDB saves per classroom doc to avoid ParallelSaveError
+  const classroomSaveQueues = new Map();
+
+  function queueClassroomPersist(classroom, applyUpdates = null) {
+    if (!classroom?._id) {
+      return Promise.resolve();
+    }
+
+    const docId = String(classroom._id);
+    const pending = classroomSaveQueues.get(docId) || Promise.resolve();
+    const next = pending
+      .catch(() => {})
+      .then(() => {
+        if (typeof applyUpdates === "function") {
+          applyUpdates(classroom);
+        }
+        return classroom.save();
+      })
+      .catch((err) => {
+        console.error("Error saving classroom:", err?.message || err);
+      });
+
+    classroomSaveQueues.set(docId, next);
+    return next.finally(() => {
+      if (classroomSaveQueues.get(docId) === next) {
+        classroomSaveQueues.delete(docId);
+      }
+    });
+  }
+
   function emitVoiceScalingState(roomCode) {
     const participantCount = Number(io.sockets.adapter.rooms.get(roomCode)?.size || 0);
 
@@ -87,9 +117,10 @@ module.exports = function attachSocketHandlers(io, deps) {
 
   async function persistDiscussionState(classroom, activeSession) {
     if (!classroom) return;
-    classroom.discussionFeed = Array.isArray(activeSession.discussionFeed) ? [...activeSession.discussionFeed] : [];
-    classroom.discussionPolls = Array.isArray(activeSession.discussionPolls) ? [...activeSession.discussionPolls] : [];
-    await classroom.save().catch((err) => console.error("Error saving discussion state:", err));
+    await queueClassroomPersist(classroom, () => {
+      classroom.discussionFeed = Array.isArray(activeSession.discussionFeed) ? [...activeSession.discussionFeed] : [];
+      classroom.discussionPolls = Array.isArray(activeSession.discussionPolls) ? [...activeSession.discussionPolls] : [];
+    });
   }
 
   function emitParticipantsState(roomCode, activeSession) {
@@ -263,12 +294,13 @@ module.exports = function attachSocketHandlers(io, deps) {
           activeSession.blackboardStrokes = activeSession.blackboardStrokes.slice(-1000);
         }
 
-        if (classroom) {
-          classroom.blackboardStrokes = [...activeSession.blackboardStrokes];
-          await classroom.save().catch((err) => console.error("Error saving classroom:", err));
-        }
-
         socket.to(roomCode).emit("blackboard-stroke", stroke);
+
+        if (classroom) {
+          await queueClassroomPersist(classroom, () => {
+            classroom.blackboardStrokes = [...activeSession.blackboardStrokes];
+          });
+        }
       });
 
       socket.on("request-discussion-state", () => {
@@ -345,8 +377,8 @@ module.exports = function attachSocketHandlers(io, deps) {
             type: "image",
             name: String(payload.name || "image").trim(),
             dataUrl,
-            displayName: activeSession.userDisplayNames?.get(socket.id) || payload.displayName || socket.id,
-            userId: socket.id,
+            displayName: activeSession.userDisplayNames?.get(socket.id) || payload.displayName || userId || socket.id,
+            userId: userId || socket.id,
             createdAt: Date.now(),
           };
           activeSession.discussionFeed = Array.isArray(activeSession.discussionFeed) ? activeSession.discussionFeed : [];
@@ -436,11 +468,12 @@ module.exports = function attachSocketHandlers(io, deps) {
 
       socket.on("blackboard-clear", async () => {
         activeSession.blackboardStrokes = [];
-        if (classroom) {
-          classroom.blackboardStrokes = [];
-          await classroom.save().catch((err) => console.error("Error saving classroom:", err));
-        }
         io.to(roomCode).emit("blackboard-clear");
+        if (classroom) {
+          await queueClassroomPersist(classroom, () => {
+            classroom.blackboardStrokes = [];
+          });
+        }
       });
 
       socket.on("blackboard-laser", (payload = {}) => {
@@ -540,7 +573,10 @@ module.exports = function attachSocketHandlers(io, deps) {
       if (!activeSession.userAudioStates) {
         activeSession.userAudioStates = new Map();
       }
-      activeSession.userAudioStates.set(socket.id, { muted: true, deafened: false });
+      activeSession.userAudioStates.set(socket.id, {
+        muted: role !== "teacher",
+        deafened: false,
+      });
       if (!activeSession.raiseHands) activeSession.raiseHands = new Set();
 
       socket.emit("peer-joined", { userId: socket.id, role });

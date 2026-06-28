@@ -9,10 +9,20 @@ function isStrictLowBandwidthConnection() {
   return Boolean(connection?.saveData) || networkType === "slow-2g" || networkType === "2g";
 }
 
-import { socketTransports } from "../socketTransport.js";
+import { socketTransports, socketServerUrl, socketPath } from "../socketTransport.js";
 
 async function loadSocketClientModule() {
   return import("socket.io-client");
+}
+
+function createSocketInstance(io, options = {}) {
+  const socketOptions = {
+    path: socketPath,
+    transports: socketTransports,
+    ...options,
+  };
+
+  return socketServerUrl ? io(socketServerUrl, socketOptions) : io(socketOptions);
 }
 
 function notifyClassroomSocketReady(socket) {
@@ -68,15 +78,28 @@ export function createClassroomLoader({
           ? window.activeClassroomSocket
           : null;
 
+        const retainVoiceSystem = window.activeVoiceSystem
+          && typeof window.activeVoiceSystem.transferSocket === "function"
+          && window.activeVoiceSystem.currentRole === role
+          && window.activeVoiceSystem.useServerVoiceRelay;
+
+        if (!retainVoiceSystem && window.activeVoiceSystem) {
+          console.log("[ClassroomLoader] Destroying old voice system before socket switch");
+          try {
+            window.activeVoiceSystem.destroy();
+          } catch (e) {
+            console.warn("[ClassroomLoader] Voice cleanup before socket switch failed:", e);
+          }
+          window.activeVoiceSystem = null;
+        }
+
         if (activeSocket) {
           activeSocket.disconnect();
           activeSocket = null;
         }
 
         // Helper to create a fresh socket instance (used for forced clean reconnects)
-        const createSocket = () => io({
-          path: "/socket.io",
-          transports: socketTransports,
+        const createSocket = () => createSocketInstance(io, {
           auth: {
             role,
             roomCode,
@@ -242,14 +265,17 @@ export function createClassroomLoader({
       return;
     }
 
-    bootClassroom().catch((error) => {
+    const promise = bootClassroom().catch((error) => {
       console.error("Failed to load classroom:", error);
       setStatus("Unable to load the classroom right now.", "Offline");
       loadButton.disabled = false;
       loadButton.textContent = "Retry load";
       bootPromise = null;
       bootRequested = false;
+      throw error;
     });
+
+    return promise;
   }
 
   function disconnect() {

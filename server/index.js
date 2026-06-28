@@ -1,9 +1,12 @@
-require("dotenv").config();
+const path = require("path");
+const fs = require("fs");
+const dotenvPath = fs.existsSync(path.join(__dirname, ".env.local"))
+  ? path.join(__dirname, ".env.local")
+  : path.join(__dirname, ".env");
+require("dotenv").config({ path: dotenvPath });
 
 const express = require("express");
 const http = require("http");
-const path = require("path");
-const fs = require("fs");
 const { Server } = require("socket.io");
 const cors = require("cors");
 const mongoose = require("mongoose");
@@ -28,8 +31,39 @@ const {
 const app = express();
 const server = http.createServer(app);
 
-app.use(cors({ origin: "*", methods: ["GET", "POST", "PUT", "PATCH", "DELETE"] }));
+// Get allowed origins from environment or default to accept all
+const allowedOrigins = (() => {
+  const corsOrigin = process.env.CORS_ORIGIN || "*";
+  if (corsOrigin === "*") return "*";
+  return corsOrigin.split(",").map((o) => o.trim());
+})();
+
+console.log("[STARTUP] CORS Configuration:", {
+  allowedOrigins,
+  corsOrigin: process.env.CORS_ORIGIN || "(default: *)",
+});
+
+const corsOptions = {
+  origin: allowedOrigins,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+  credentials: allowedOrigins !== "*" ? true : false,
+};
+
+app.use(cors(corsOptions));
 app.use(express.json({ limit: "1mb" }));
+
+// Detailed logging middleware for all requests
+app.use((req, res, next) => {
+  console.log("[HTTP]", {
+    method: req.method,
+    path: req.path,
+    origin: req.get("origin"),
+    host: req.get("host"),
+    userAgent: req.get("user-agent")?.substring(0, 50),
+    timestamp: new Date().toISOString(),
+  });
+  next();
+});
 
 app.use((req, res, next) => {
   if (DEBUG_LOGS) console.log(`[HTTP] ${req.method} ${req.path}`);
@@ -40,10 +74,7 @@ app.use(createHealthRouter({ mongoose, User }));
 app.use("/auth", authRouter);
 
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"],
-  },
+  cors: corsOptions,
   // Increase buffer size to allow larger binary frames (voice chunks)
   // Default may be too small for some recorder chunks and cause parser errors
   maxHttpBufferSize: 10 * 1024 * 1024, // 10 MB
@@ -110,36 +141,25 @@ process.on("uncaughtException", (error) => {
   console.error("[UNCAUGHT EXCEPTION]", error?.message || error, error?.stack);
 });
 
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`✓ Server started on port ${PORT}`);
-});
-
 console.log("[STARTUP] Critical environment variables:");
 console.log(`  JWT_SECRET: ${CRITICAL_ENV_VARS.JWT_SECRET ? "✓ SET" : "✗ NOT SET (using fallback)"}`);
 console.log(`  MONGO_URI: ${CRITICAL_ENV_VARS.MONGO_URI ? "✓ SET" : "✗ NOT SET"}`);
 
-const MONGO_URI = CRITICAL_ENV_VARS.MONGO_URI;
-if (MONGO_URI) {
-  let logHost = "";
-  try {
-    const atIdx = MONGO_URI.indexOf("@");
-    if (atIdx !== -1) {
-      const afterAt = MONGO_URI.substring(atIdx + 1);
-      logHost = afterAt.split("/")[0];
-    }
-  } catch (e) {
-    logHost = "unknown";
-  }
-
-  console.log(`[DB] Connecting to MongoDB URI with host: ${logHost}`);
-  mongoose
-    .connect(MONGO_URI)
-    .then(() => {
-      console.log(`✓ MongoDB connected to database: ${mongoose.connection.name} (URI host: ${logHost})`);
-    })
-    .catch((e) => {
-      console.error(`✗ MongoDB connection failed for host ${logHost}:`, e?.message || e);
-    });
-} else {
+const mongoUri = process.env.MONGO_URI;
+if (!mongoUri) {
   console.error("✗ MONGO_URI not set — server will not connect to any database. Set MONGO_URI to your MongoDB Atlas connection string and restart.");
+  process.exit(1);
 }
+
+mongoose
+  .connect(mongoUri)
+  .then(() => {
+    console.log("✅ MongoDB Connected");
+    server.listen(PORT, "0.0.0.0", () => {
+      console.log(`✓ Server started on port ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error("❌ MongoDB Connection Failed:", err);
+    process.exit(1);
+  });

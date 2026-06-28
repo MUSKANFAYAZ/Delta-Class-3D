@@ -309,8 +309,10 @@ export function mountRoomToolPage(root, { role = "student", roomCode = "", api, 
     }
 
     feed.innerHTML = discussionState.feed.map((item) => {
-      const isOwnMessage = currentUserId && String(item.userId) === String(currentUserId);
-      const deleteButton = isOwnMessage
+      const currentSessionUserId = currentUserId || (socket?.id || null);
+      const isOwnMessage = currentSessionUserId && String(item.userId) === String(currentSessionUserId);
+      const canDeleteMessage = isOwnMessage || role === "teacher";
+      const deleteButton = canDeleteMessage
         ? `<button type="button" class="dc-discussion-delete" data-message-id="${escapeHtml(item.id)}">Delete</button>`
         : "";
 

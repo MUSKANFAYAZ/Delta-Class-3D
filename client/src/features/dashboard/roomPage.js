@@ -361,7 +361,13 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
 
         const micAvailable = await voiceSystem.initLocalStream();
         if (!micAvailable) {
-          console.log("Microphone not available");
+          if (voiceSystem.listenOnlyMode && role === "student") {
+            showNotice("Microphone blocked. Use https:// (not http://) on this device. You can still listen after tapping the page.");
+          } else if (voiceSystem.listenOnlyMode && role === "teacher") {
+            showNotice("Microphone unavailable. Use https://localhost:5173 or allow mic in browser settings.");
+          } else {
+            console.log("Microphone not available");
+          }
         }
 
         setupVoiceControls();
@@ -440,9 +446,12 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
   const initializeMuteButton = () => {
     if (muteButton && !muteButton._muted_initialized) {
       muteButton._muted_initialized = true;
-      setMuteButtonState(false);
+      // Don't set state here—wait for VoiceSystem to be ready
       muteButton.addEventListener("click", async () => {
         if (window.activeVoiceSystem) {
+          if (typeof window.activeVoiceSystem.enableRemoteAudioWithGesture === "function") {
+            window.activeVoiceSystem.enableRemoteAudioWithGesture();
+          }
           const isMuted = window.activeVoiceSystem.toggleMute();
           setMuteButtonState(isMuted);
           showNotice(isMuted ? "Microphone muted." : "Microphone unmuted.");
@@ -473,6 +482,26 @@ export function mountRoomPage(root, { roomCode, role, api, onExit }) {
 
   // Initialize mute button immediately
   initializeMuteButton();
+
+  // Sync button state once VoiceSystem is ready (accounts for initialization delay)
+  const syncMuteButtonStateWithVoiceSystem = () => {
+    if (window.activeVoiceSystem && muteButton && muteButton._muted_initialized) {
+      const actualMutedState = Boolean(window.activeVoiceSystem.isMuted);
+      setMuteButtonState(actualMutedState);
+    }
+  };
+
+  // Call sync immediately in case VoiceSystem already exists
+  syncMuteButtonStateWithVoiceSystem();
+
+  // Also sync when voice relay starts (teacher audio begins flowing)
+  const voiceRelayCheckInterval = setInterval(() => {
+    if (window.activeVoiceSystem && window.activeVoiceSystem.relayActive) {
+      syncMuteButtonStateWithVoiceSystem();
+      clearInterval(voiceRelayCheckInterval);
+    }
+  }, 100);
+  setTimeout(() => clearInterval(voiceRelayCheckInterval), 5000); // Stop checking after 5s
 
   const setupRaiseHandListeners = () => {
     const socket = window.activeClassroomSocket;

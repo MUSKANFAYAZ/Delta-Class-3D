@@ -144,7 +144,9 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
       return;
     }
     try {
+      console.log("[LOGIN] Attempting login with:", { phone: p, role: currentRole });
       const data = await api("/login", { method: "POST", body: { phone: p, password: pw, role: currentRole } });
+      console.log("[LOGIN] ✓ Login successful:", { userName: data?.user?.name, role: data?.user?.role });
       if (data?.token) {
         localStorage.setItem("delta-access-token", data.token);
         localStorage.setItem("delta-access-token-ts", String(Date.now()));
@@ -157,6 +159,7 @@ export function mountLogin(root, { api, onDone, onGoRegister, role = "", mode = 
       }
       onDone?.();
     } catch (e) {
+      console.error("[LOGIN] ✗ Login failed:", e?.message);
       status.textContent = e?.message || "Login failed.";
     }
   }
